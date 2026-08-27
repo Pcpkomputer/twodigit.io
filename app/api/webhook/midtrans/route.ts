@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
       fraud_status,
       custom_field1, // message
       custom_field2, // mediaUrl
+      custom_field3, // name
       customer_details,
     } = notification;
 
@@ -39,13 +40,16 @@ export async function POST(request: NextRequest) {
       (transaction_status === "capture" && fraud_status === "accept");
 
     if (isSettled) {
+      const donorName =
+        custom_field3 ||
+        customer_details?.first_name ||
+        customer_details?.customer_name ||
+        "Anonim";
+
       const donationData = {
         orderId: order_id,
         amount: parseInt(String(gross_amount).split(".")[0], 10),
-        name:
-          customer_details?.first_name ||
-          customer_details?.customer_name ||
-          "Anonim",
+        name: donorName,
         message: custom_field1 || "",
         mediaUrl: custom_field2 || "",
         createdAt: new Date().toISOString(),

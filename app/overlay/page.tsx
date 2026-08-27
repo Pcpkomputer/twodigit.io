@@ -17,15 +17,16 @@ export default function OverlayPage() {
   const [queue, setQueue] = useState<DonationAlert[]>([]);
   const isPlayingRef = useRef(false);
 
-  // Helper to extract YouTube embed URL
+  // Helper to extract YouTube embed URL with strict autoplay parameters
   const getYouTubeEmbedUrl = (url: string): string | null => {
     if (!url) return null;
     const regExp =
-      /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
     const match = url.match(regExp);
-    return match && match[2].length === 11
-      ? `https://www.youtube.com/embed/${match[2]}?autoplay=1&controls=0&modestbranding=1`
-      : null;
+    if (!match || !match[1]) return null;
+
+    const videoId = match[1];
+    return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&controls=0&loop=0&rel=0&modestbranding=1&enablejsapi=1`;
   };
 
   // Helper to play Text-to-Speech
@@ -172,10 +173,10 @@ export default function OverlayPage() {
             {ytEmbedUrl && (
               <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black">
                 <iframe
-                  className="w-full h-full"
+                  className="w-full h-full border-0"
                   src={ytEmbedUrl}
                   title="Media Share"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
                   allowFullScreen
                 />
               </div>

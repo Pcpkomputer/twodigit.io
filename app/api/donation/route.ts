@@ -46,6 +46,7 @@ export async function POST(request: NextRequest) {
       },
       custom_field1: message || "",
       custom_field2: mediaUrl || "",
+      custom_field3: name?.trim() || "Anonim",
     };
 
     const midtransRes = await fetch(endpoint, {

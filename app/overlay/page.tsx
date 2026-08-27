@@ -30,81 +30,18 @@ const getYouTubeVideoId = (url: string): string | null => {
 
 // Dedicated YouTube Player Component
 function YouTubeMedia({ videoId }: { videoId: string }) {
-  const playerRef = useRef<any>(null);
-
-  useEffect(() => {
-    let isMounted = true;
-    let checkTimer: NodeJS.Timeout;
-
-    const init = () => {
-      if (typeof window !== "undefined" && window.YT && window.YT.Player) {
-        try {
-          if (playerRef.current) {
-            try {
-              playerRef.current.destroy();
-            } catch (_) { }
-          }
-
-          playerRef.current = new window.YT.Player("active-yt-player", {
-            height: "100%",
-            width: "100%",
-            videoId: videoId,
-            playerVars: {
-              autoplay: 1,
-              controls: 0,
-              modestbranding: 1,
-              rel: 0,
-              playsinline: 1,
-              enablejsapi: 1,
-              origin: typeof window !== "undefined" ? window.location.origin : "",
-            },
-            events: {
-              onReady: (event: any) => {
-                if (!isMounted) return;
-                try {
-                  event.target.unMute();
-                  event.target.playVideo();
-                } catch (err) {
-                  console.warn("Autoplay audio blocked, attempting muted autoplay:", err);
-                  event.target.mute();
-                  event.target.playVideo();
-                }
-              },
-              onStateChange: (event: any) => {
-                // If paused or unstarted, kick off play
-                if (event.data === -1 || event.data === 2) {
-                  try {
-                    event.target.playVideo();
-                  } catch (_) { }
-                }
-              },
-            },
-          });
-        } catch (err) {
-          console.error("Failed to construct YT.Player:", err);
-        }
-      } else {
-        checkTimer = setTimeout(init, 200);
-      }
-    };
-
-    init();
-
-    return () => {
-      isMounted = false;
-      clearTimeout(checkTimer);
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (_) { }
-        playerRef.current = null;
-      }
-    };
-  }, [videoId]);
+  // YouTube strict embed URL for iframe
+  const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&controls=0&loop=0&rel=0&modestbranding=1&enablejsapi=1`;
 
   return (
     <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black flex items-center justify-center">
-      <div id="active-yt-player" className="w-full h-full" />
+      <iframe
+        className="w-full h-full border-0"
+        src={embedUrl}
+        title="Media Share Video"
+        allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
+        allowFullScreen
+      />
     </div>
   );
 }
@@ -112,16 +49,6 @@ function YouTubeMedia({ videoId }: { videoId: string }) {
 export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
-
-  // Pre-load YouTube script once on component mount
-  useEffect(() => {
-    if (typeof window !== "undefined" && !window.YT) {
-      const tag = document.createElement("script");
-      tag.src = "https://www.youtube.com/iframe_api";
-      const firstScriptTag = document.getElementsByTagName("script")[0];
-      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-    }
-  }, []);
 
   // Helper to play Text-to-Speech
   const playTTS = (text: string) => {

@@ -126,7 +126,7 @@ export default function OverlayPage() {
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
       {/* Debug Controls (Clickable in browser test) */}
-      <div className="fixed top-4 right-4 flex gap-2 pointer-events-auto z-50 opacity-40 hover:opacity-100 transition-opacity">
+      {/* <div className="fixed top-4 right-4 flex gap-2 pointer-events-auto z-50 opacity-40 hover:opacity-100 transition-opacity">
         <button
           onClick={() => triggerTestAlert(false)}
           className="px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-lg font-medium shadow-md text-sm backdrop-blur-md cursor-pointer transition-all active:scale-95"
@@ -139,7 +139,7 @@ export default function OverlayPage() {
         >
           🎬 Test MediaShare
         </button>
-      </div>
+      </div> */}
 
       {currentAlert && (
         <div className="animate-in fade-in zoom-in-95 duration-500 max-w-xl w-full flex flex-col items-center">

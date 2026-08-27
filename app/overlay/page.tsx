@@ -12,22 +12,36 @@ interface DonationAlert {
   createdAt: string;
 }
 
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+// Helper to extract clean YouTube Video ID
+const getYouTubeVideoId = (url: string): string | null => {
+  if (!url) return null;
+  const regExp =
+    /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
+  const match = url.match(regExp);
+  return match && match[1] ? match[1] : null;
+};
+
 export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
-  const isPlayingRef = useRef(false);
+  const playerRef = useRef<any>(null);
 
-  // Helper to extract YouTube embed URL with strict autoplay parameters
-  const getYouTubeEmbedUrl = (url: string): string | null => {
-    if (!url) return null;
-    const regExp =
-      /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/;
-    const match = url.match(regExp);
-    if (!match || !match[1]) return null;
-
-    const videoId = match[1];
-    return `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&controls=0&loop=0&rel=0&modestbranding=1&enablejsapi=1`;
-  };
+  // Load YouTube IFrame API once
+  useEffect(() => {
+    if (typeof window !== "undefined" && !window.YT) {
+      const tag = document.createElement("script");
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName("script")[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+  }, []);
 
   // Helper to play Text-to-Speech
   const playTTS = (text: string) => {
@@ -103,26 +117,61 @@ export default function OverlayPage() {
     return () => clearTimeout(timer);
   }, [currentAlert]);
 
-  const ytEmbedUrl = currentAlert
-    ? getYouTubeEmbedUrl(currentAlert.mediaUrl)
-    : null;
+  // 3. Initialize & Autoplay YouTube Player whenever a media alert renders
+  const videoId = currentAlert ? getYouTubeVideoId(currentAlert.mediaUrl) : null;
 
-  // Debug function to manually trigger a test alert
-  const triggerTestAlert = (withMedia: boolean = false) => {
-    const testDonation: DonationAlert = {
-      orderId: `TEST-${Date.now()}`,
-      amount: withMedia ? 100000 : 50000,
-      name: withMedia ? "Reza Gaming" : "Budi Santoso",
-      message: withMedia
-        ? "Semangat terus streamingnya bang! Lagu favorit nih!"
-        : "Terima kasih banyak konten dan ilmunya bang!",
-      mediaUrl: withMedia
-        ? "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
-        : "",
-      createdAt: new Date().toISOString(),
+  useEffect(() => {
+    if (!videoId) return;
+
+    let isMounted = true;
+
+    const initPlayer = () => {
+      if (typeof window !== "undefined" && window.YT && window.YT.Player) {
+        try {
+          if (playerRef.current) {
+            playerRef.current.destroy();
+          }
+
+          playerRef.current = new window.YT.Player("youtube-player", {
+            videoId: videoId,
+            playerVars: {
+              autoplay: 1,
+              controls: 0,
+              modestbranding: 1,
+              rel: 0,
+              playsinline: 1,
+              origin: typeof window !== "undefined" ? window.location.origin : "",
+            },
+            events: {
+              onReady: (event: any) => {
+                if (!isMounted) return;
+                event.target.playVideo();
+                // Ensure unmute if allowed, otherwise play
+                event.target.unMute();
+              },
+            },
+          });
+        } catch (e) {
+          console.error("Error creating YT Player:", e);
+        }
+      } else {
+        setTimeout(initPlayer, 200);
+      }
     };
-    setQueue((prev) => [...prev, testDonation]);
-  };
+
+    const timer = setTimeout(initPlayer, 100);
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (_) { }
+        playerRef.current = null;
+      }
+    };
+  }, [videoId]);
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
@@ -169,16 +218,10 @@ export default function OverlayPage() {
               </p>
             )}
 
-            {/* Media Share Preview */}
-            {ytEmbedUrl && (
-              <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black">
-                <iframe
-                  className="w-full h-full border-0"
-                  src={ytEmbedUrl}
-                  title="Media Share"
-                  allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
-                  allowFullScreen
-                />
+            {/* Media Share YouTube Player Target */}
+            {videoId && (
+              <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black flex items-center justify-center">
+                <div id="youtube-player" className="w-full h-full" />
               </div>
             )}
           </div>

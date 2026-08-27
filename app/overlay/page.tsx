@@ -28,12 +28,92 @@ const getYouTubeVideoId = (url: string): string | null => {
   return match && match[1] ? match[1] : null;
 };
 
+// Dedicated YouTube Player Component
+function YouTubeMedia({ videoId }: { videoId: string }) {
+  const playerRef = useRef<any>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    let checkTimer: NodeJS.Timeout;
+
+    const init = () => {
+      if (typeof window !== "undefined" && window.YT && window.YT.Player) {
+        try {
+          if (playerRef.current) {
+            try {
+              playerRef.current.destroy();
+            } catch (_) { }
+          }
+
+          playerRef.current = new window.YT.Player("active-yt-player", {
+            height: "100%",
+            width: "100%",
+            videoId: videoId,
+            playerVars: {
+              autoplay: 1,
+              controls: 0,
+              modestbranding: 1,
+              rel: 0,
+              playsinline: 1,
+              enablejsapi: 1,
+              origin: typeof window !== "undefined" ? window.location.origin : "",
+            },
+            events: {
+              onReady: (event: any) => {
+                if (!isMounted) return;
+                try {
+                  event.target.unMute();
+                  event.target.playVideo();
+                } catch (err) {
+                  console.warn("Autoplay audio blocked, attempting muted autoplay:", err);
+                  event.target.mute();
+                  event.target.playVideo();
+                }
+              },
+              onStateChange: (event: any) => {
+                // If paused or unstarted, kick off play
+                if (event.data === -1 || event.data === 2) {
+                  try {
+                    event.target.playVideo();
+                  } catch (_) { }
+                }
+              },
+            },
+          });
+        } catch (err) {
+          console.error("Failed to construct YT.Player:", err);
+        }
+      } else {
+        checkTimer = setTimeout(init, 200);
+      }
+    };
+
+    init();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(checkTimer);
+      if (playerRef.current) {
+        try {
+          playerRef.current.destroy();
+        } catch (_) { }
+        playerRef.current = null;
+      }
+    };
+  }, [videoId]);
+
+  return (
+    <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black flex items-center justify-center">
+      <div id="active-yt-player" className="w-full h-full" />
+    </div>
+  );
+}
+
 export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
-  const playerRef = useRef<any>(null);
 
-  // Load YouTube IFrame API once
+  // Pre-load YouTube script once on component mount
   useEffect(() => {
     if (typeof window !== "undefined" && !window.YT) {
       const tag = document.createElement("script");
@@ -107,8 +187,8 @@ export default function OverlayPage() {
     const speechText = `${currentAlert.name} mendonasikan ${new Intl.NumberFormat("id-ID").format(currentAlert.amount)} Rupiah. ${currentAlert.message ? currentAlert.message : ""}`;
     playTTS(speechText);
 
-    // Display alert duration (12s if media attached, otherwise 8s)
-    const alertDuration = currentAlert.mediaUrl ? 12000 : 8000;
+    // Display alert duration (15s if media attached, otherwise 8s)
+    const alertDuration = currentAlert.mediaUrl ? 15000 : 8000;
 
     const timer = setTimeout(() => {
       setCurrentAlert(null); // Triggers next item cleanly
@@ -117,80 +197,10 @@ export default function OverlayPage() {
     return () => clearTimeout(timer);
   }, [currentAlert]);
 
-  // 3. Initialize & Autoplay YouTube Player whenever a media alert renders
   const videoId = currentAlert ? getYouTubeVideoId(currentAlert.mediaUrl) : null;
-
-  useEffect(() => {
-    if (!videoId) return;
-
-    let isMounted = true;
-
-    const initPlayer = () => {
-      if (typeof window !== "undefined" && window.YT && window.YT.Player) {
-        try {
-          if (playerRef.current) {
-            playerRef.current.destroy();
-          }
-
-          playerRef.current = new window.YT.Player("youtube-player", {
-            videoId: videoId,
-            playerVars: {
-              autoplay: 1,
-              controls: 0,
-              modestbranding: 1,
-              rel: 0,
-              playsinline: 1,
-              origin: typeof window !== "undefined" ? window.location.origin : "",
-            },
-            events: {
-              onReady: (event: any) => {
-                if (!isMounted) return;
-                event.target.playVideo();
-                // Ensure unmute if allowed, otherwise play
-                event.target.unMute();
-              },
-            },
-          });
-        } catch (e) {
-          console.error("Error creating YT Player:", e);
-        }
-      } else {
-        setTimeout(initPlayer, 200);
-      }
-    };
-
-    const timer = setTimeout(initPlayer, 100);
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timer);
-      if (playerRef.current) {
-        try {
-          playerRef.current.destroy();
-        } catch (_) { }
-        playerRef.current = null;
-      }
-    };
-  }, [videoId]);
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
-      {/* Debug Controls (Clickable in browser test) */}
-      {/* <div className="fixed top-4 right-4 flex gap-2 pointer-events-auto z-50 opacity-40 hover:opacity-100 transition-opacity">
-        <button
-          onClick={() => triggerTestAlert(false)}
-          className="px-4 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-lg font-medium shadow-md text-sm backdrop-blur-md cursor-pointer transition-all active:scale-95"
-        >
-          🧪 Test Donasi
-        </button>
-        <button
-          onClick={() => triggerTestAlert(true)}
-          className="px-4 py-2 bg-pink-600/80 hover:bg-pink-600 text-white rounded-lg font-medium shadow-md text-sm backdrop-blur-md cursor-pointer transition-all active:scale-95"
-        >
-          🎬 Test MediaShare
-        </button>
-      </div> */}
-
       {currentAlert && (
         <div className="animate-in fade-in zoom-in-95 duration-500 max-w-xl w-full flex flex-col items-center">
           {/* Main Card */}
@@ -218,12 +228,8 @@ export default function OverlayPage() {
               </p>
             )}
 
-            {/* Media Share YouTube Player Target */}
-            {videoId && (
-              <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black flex items-center justify-center">
-                <div id="youtube-player" className="w-full h-full" />
-              </div>
-            )}
+            {/* Media Share YouTube Player */}
+            {videoId && <YouTubeMedia videoId={videoId} />}
           </div>
         </div>
       )}

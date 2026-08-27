@@ -70,5 +70,39 @@ vercel deploy
 
 ---
 
+## 💳 Moving to Production & Webhook Configuration
+
+To move away from the Midtrans Sandbox environment and start accepting real money from your viewers, you must switch your account status to **Production**, complete the mandatory compliance verification (KYC), and wire up the notification webhook.
+
+### 📋 Checklist & Required Documents (Individual / UMKM Tier)
+If you register as an individual creator or micro-business, prepare the following documents:
+1.  **KTP (Identity Card):** A clear, non-glare photo of your Indonesian National ID.
+2.  **Selfie with KTP:** Ensure your face and the KTP data are clearly visible.
+3.  **NPWP (Tax ID Number):** Optional for some initial transaction tiers, but highly recommended for continuous smooth payouts and professional compliance.
+4.  **Personal Bank Account:** The account name **must match exactly** with the name on your KTP. This is where your cleared funds will be automatically disbursed.
+
+### 🔗 Configuring Midtrans Notification Webhook
+For the real-time alert overlay and leaderboard to work, Midtrans needs to know where to send payment status updates. You must configure this in both your **Sandbox** and **Production** dashboards:
+
+1.  Deploy your project to Vercel first to get your live deployment URL (e.g., `https://vercel.app`).
+2.  Log in to your Midtrans Dashboard.
+3.  Go to **Settings** ➡️ **Configuration**.
+4.  Locate the **Payment Notification URL** field and change it to your Vercel API webhook endpoint:
+    ```text
+    https://vercel.app/api/webhook/midtrans
+    ```
+5.  *(Optional)* Set the **Redirection URL** fields (Finish, Unfinished, Error URL) if you want to redirect the supporters back to your custom streaming profile page after they finish paying.
+6.  Click **Update** at the bottom of the page to save the configurations.
+
+### 🔄 Activation Steps:
+1.  Toggle the switch from **Sandbox** to **Production** mode on the top left corner of the Midtrans Dashboard.
+2.  Click **"Passport / Registration"** and fill out your business profile information truthfully (Select "Perorangan / Individual" tier).
+3.  Upload your KYC documents (KTP and Selfie).
+4.  Activate your preferred payment methods (Make sure to check **QRIS** and **E-Wallets** for streaming donation optimization).
+5.  Wait for the Midtrans team to review your application (Usually takes 1-3 business days).
+6.  Once approved, update your `.env` keys in your production server with the new production credentials, and flip `MIDTRANS_IS_PRODUCTION` to `"true"`.
+
+---
+
 ## 📝 License
 Distributed under the MIT License. Feel free to fork, clone, and use this to elevate your streaming career from an "instantly-triggered amateur" to a "technically-sovereign professional."

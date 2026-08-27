@@ -70,6 +70,19 @@ vercel deploy
 
 ---
 
+### 3. Setting Up Environment Variables in Vercel Dashboard
+To securely inject your secrets into the production environment without committing them to git, add them directly inside the Vercel Dashboard:
+
+1. Log in to your [Vercel Account](https://vercel.com) and select your project.
+2. Navigate to the **Settings** tab at the top menu.
+3. Click on **Environment Variables** in the left sidebar.
+4. In the **Key** field, type the variable name (e.g., `MIDTRANS_SERVER_KEY`).
+5. In the **Value** field, paste your corresponding credential token.
+6. Under **Environments**, check the environments where this token applies (**Production**, **Preview**, and/or **Development**).
+7. Click **Add** to save. Repeat this process for all credentials listed in the template above.
+8. *Note:* If you update your variables after the first deployment, you must trigger a new deployment via the Vercel dashboard or CLI (`vercel --prod`) for the changes to take effect.
+
+
 ## 💳 Moving to Production & Webhook Configuration
 
 To move away from the Midtrans Sandbox environment and start accepting real money from your viewers, you must switch your account status to **Production**, complete the mandatory compliance verification (KYC), and wire up the notification webhook.

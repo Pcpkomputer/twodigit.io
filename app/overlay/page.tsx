@@ -50,22 +50,33 @@ export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
 
-  // Helper to play Text-to-Speech
+  // Helper to play Text-to-Speech (Indonesian Female Voice)
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
   const playTTS = (text: string) => {
-    if (typeof window !== "undefined" && "speechSynthesis" in window && text) {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "id-ID";
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
+    if (!text || typeof window === "undefined") return;
 
-      const voices = window.speechSynthesis.getVoices();
-      const idVoice = voices.find(
-        (v) => v.lang.includes("id") || v.lang.includes("ID")
-      );
-      if (idVoice) utterance.voice = idVoice;
-
-      window.speechSynthesis.speak(utterance);
+    try {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current.currentTime = 0;
+      }
+      const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+      audioRef.current = audio;
+      audio.play().catch((err) => {
+        console.warn("Audio stream playback failed, falling back to Web Speech API:", err);
+        if ("speechSynthesis" in window) {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(text);
+          utterance.lang = "id-ID";
+          const voices = window.speechSynthesis.getVoices();
+          const idVoice = voices.find((v) => v.lang.toLowerCase().includes("id"));
+          if (idVoice) utterance.voice = idVoice;
+          window.speechSynthesis.speak(utterance);
+        }
+      });
+    } catch (e) {
+      console.error("TTS playback error:", e);
     }
   };
 

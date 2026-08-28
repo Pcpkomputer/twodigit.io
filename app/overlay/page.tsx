@@ -52,53 +52,53 @@ export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
 
-  // Helper to play Text-to-Speech (Indonesian Female Voice)
+  // Dedicated Audio Element ref
   const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Initialize and unlock audio element on mount
+  useEffect(() => {
+    const audio = new Audio();
+    audio.crossOrigin = "anonymous";
+    audioRef.current = audio;
+
+    // Optional user interaction unlock listener for OBS interact window
+    const unlockAudio = () => {
+      if (audioRef.current) {
+        audioRef.current.play().catch(() => { });
+      }
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+
+    window.addEventListener("click", unlockAudio);
+    window.addEventListener("keydown", unlockAudio);
+
+    return () => {
+      window.removeEventListener("click", unlockAudio);
+      window.removeEventListener("keydown", unlockAudio);
+    };
+  }, []);
 
   const playTTS = (text: string) => {
     if (!text || typeof window === "undefined") return;
 
     try {
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
+      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
+
+      let audio = audioRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audioRef.current = audio;
       }
 
-      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}`;
-      const audio = new Audio(audioUrl);
-      audioRef.current = audio;
-
-      const fallbackToWebSpeech = () => {
-        if ("speechSynthesis" in window) {
-          window.speechSynthesis.cancel();
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.lang = "id-ID";
-          const voices = window.speechSynthesis.getVoices();
-          const idFemaleVoice =
-            voices.find(
-              (v) =>
-                v.lang.toLowerCase().includes("id") &&
-                (v.name.toLowerCase().includes("female") ||
-                  v.name.toLowerCase().includes("gadis") ||
-                  v.name.toLowerCase().includes("wanita") ||
-                  v.name.toLowerCase().includes("damayanti"))
-            ) || voices.find((v) => v.lang.toLowerCase().includes("id"));
-
-          if (idFemaleVoice) utterance.voice = idFemaleVoice;
-          window.speechSynthesis.speak(utterance);
-        }
-      };
-
-      audio.onerror = () => {
-        console.warn("TTS audio failed to load, trying Web Speech fallback...");
-        fallbackToWebSpeech();
-      };
+      audio.pause();
+      audio.src = audioUrl;
+      audio.load();
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn("Audio element play error:", err);
-          fallbackToWebSpeech();
+          console.warn("Audio autoplay blocked by OBS/browser:", err);
         });
       }
     } catch (e) {

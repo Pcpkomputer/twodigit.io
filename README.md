@@ -1,4 +1,4 @@
-# 🚀 ZeroCut.io - MVP Edition
+# 🚀 Twodigit.io - MVP Edition
 
 A production-ready, ultra-low latency, and zero-platform-fee donation overlay engine designed for self-hosted streamers. This Minimum Viable Product (MVP) replaces traditional third-party donation platforms (which charge 5-6% cuts) with an ultra-lightweight serverless architecture that routes 100% of non-MDR revenue directly to the creator's bank account.
 

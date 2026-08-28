@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef } from "react";
 import Pusher from "pusher-js";
 
+import { numberToIndonesianWords } from "@/lib/terbilang";
+
 interface DonationAlert {
   orderId: string;
   amount: number;
@@ -61,22 +63,46 @@ export default function OverlayPage() {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
       }
-      const audio = new Audio(`/api/tts?text=${encodeURIComponent(text)}`);
+
+      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}`;
+      const audio = new Audio(audioUrl);
       audioRef.current = audio;
-      audio.play().catch((err) => {
-        console.warn("Audio stream playback failed, falling back to Web Speech API:", err);
+
+      const fallbackToWebSpeech = () => {
         if ("speechSynthesis" in window) {
           window.speechSynthesis.cancel();
           const utterance = new SpeechSynthesisUtterance(text);
           utterance.lang = "id-ID";
           const voices = window.speechSynthesis.getVoices();
-          const idVoice = voices.find((v) => v.lang.toLowerCase().includes("id"));
-          if (idVoice) utterance.voice = idVoice;
+          const idFemaleVoice =
+            voices.find(
+              (v) =>
+                v.lang.toLowerCase().includes("id") &&
+                (v.name.toLowerCase().includes("female") ||
+                  v.name.toLowerCase().includes("gadis") ||
+                  v.name.toLowerCase().includes("wanita") ||
+                  v.name.toLowerCase().includes("damayanti"))
+            ) || voices.find((v) => v.lang.toLowerCase().includes("id"));
+
+          if (idFemaleVoice) utterance.voice = idFemaleVoice;
           window.speechSynthesis.speak(utterance);
         }
-      });
+      };
+
+      audio.onerror = () => {
+        console.warn("TTS audio failed to load, trying Web Speech fallback...");
+        fallbackToWebSpeech();
+      };
+
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch((err) => {
+          console.warn("Audio element play error:", err);
+          fallbackToWebSpeech();
+        });
+      }
     } catch (e) {
-      console.error("TTS playback error:", e);
+      console.error("TTS error:", e);
     }
   };
 
@@ -121,8 +147,9 @@ export default function OverlayPage() {
   useEffect(() => {
     if (!currentAlert) return;
 
-    // Speak donor message with TTS
-    const speechText = `${currentAlert.name} mendonasikan ${new Intl.NumberFormat("id-ID").format(currentAlert.amount)} Rupiah. ${currentAlert.message ? currentAlert.message : ""}`;
+    // Speak donor message with natural Indonesian TTS (terbilang for amount)
+    const amountWords = numberToIndonesianWords(currentAlert.amount);
+    const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${currentAlert.message ? currentAlert.message : ""}`;
     playTTS(speechText);
 
     // Display alert duration (15s if media attached, otherwise 8s)

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -8,61 +9,41 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Text parameter is required", { status: 400 });
   }
 
-  const cleanText = text.trim().slice(0, 350);
-  const encodedText = encodeURIComponent(cleanText);
+  const cleanText = text.trim().slice(0, 400);
 
-  // Upstream endpoints in priority order (all providing Indonesian voice)
-  const sources: { url: string; headers: Record<string, string> }[] = [
-    {
-      url: `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodedText}&tl=id&total=1&idx=0&textlen=${cleanText.length}&client=tw-ob&prev=input`,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        Referer: "https://translate.google.com/",
-        Accept: "*/*",
-      },
-    },
-    {
-      url: `https://translate.google.com.hk/translate_tts?ie=UTF-8&q=${encodedText}&tl=id&client=gtx`,
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        Accept: "*/*",
-      },
-    },
-    {
-      url: `https://translate.googleapis.com/translate_tts?client=gtx&ie=UTF-8&tl=id&q=${encodedText}`,
-      headers: {
-        "User-Agent": "Mozilla/5.0",
-        Accept: "*/*",
-      },
-    },
-  ];
+  try {
+    const tts = new MsEdgeTTS();
+    // Use Indonesian Female Neural voice (id-ID-GadisNeural)
+    await tts.setMetadata(
+      "id-ID-GadisNeural",
+      OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
+    );
 
-  for (const source of sources) {
-    try {
-      const res = await fetch(source.url, {
-        headers: source.headers,
-      });
+    const streamResult = await tts.toStream(cleanText);
 
-      if (res.ok) {
-        const audioBuffer = await res.arrayBuffer();
-        if (audioBuffer.byteLength > 0) {
-          return new NextResponse(audioBuffer, {
-            headers: {
-              "Content-Type": "audio/mpeg",
-              "Accept-Ranges": "bytes",
-              "Content-Length": audioBuffer.byteLength.toString(),
-              "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-            },
-          });
-        }
-      }
-    } catch (err) {
-      console.warn("Upstream TTS source error:", err);
+    const audioBuffer = await new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      streamResult.audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
+      streamResult.audioStream.on("end", () => resolve(Buffer.concat(chunks)));
+      streamResult.audioStream.on("error", (err: Error) => reject(err));
+    });
+
+    if (!audioBuffer || audioBuffer.length === 0) {
+      throw new Error("Empty audio buffer generated from Neural TTS");
     }
+
+    return new NextResponse(new Uint8Array(audioBuffer), {
+      headers: {
+        "Content-Type": "audio/mpeg",
+        "Accept-Ranges": "bytes",
+        "Content-Length": audioBuffer.byteLength.toString(),
+        "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
+      },
+    });
+  } catch (error) {
+    console.error("Neural TTS generation error:", error);
+    return new NextResponse("Failed to generate Indonesian TTS audio", {
+      status: 500,
+    });
   }
-
-  return new NextResponse("Failed to fetch TTS audio from all providers", { status: 502 });
 }
-

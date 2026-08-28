@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
 import { pusherServer } from "@/lib/pusher";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,6 +58,26 @@ export async function POST(request: NextRequest) {
 
       // 3. Trigger realtime event to Pusher channel for OBS Overlay
       await pusherServer.trigger("donation-stream", "new-donation", donationData);
+
+      // 4. Save to Supabase database
+      try {
+        const { error: dbError } = await supabaseAdmin.from("donations").insert({
+          order_id: order_id,
+          amount: donationData.amount,
+          donor_name: donationData.name,
+          message: donationData.message,
+          media_url: donationData.mediaUrl,
+          created_at: donationData.createdAt,
+        });
+
+        if (dbError) {
+          console.error("Failed to insert donation to Supabase:", dbError);
+        } else {
+          console.log("Saved donation to Supabase database successfully");
+        }
+      } catch (dbErr) {
+        console.error("Supabase insert exception:", dbErr);
+      }
 
       console.log("Broadcasted donation to Pusher:", donationData);
     }

@@ -257,20 +257,16 @@ export default function Home() {
 
                     <button
                       type="button"
-                      onClick={() => setPaymentMethod("midtrans")}
-                      className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
-                        paymentMethod === "midtrans"
-                          ? "border-2 border-primary bg-indigo-50/50 shadow-sm"
-                          : "border-outline-variant hover:border-gray-300"
-                      }`}
+                      disabled
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 text-left flex flex-col gap-1 opacity-50 cursor-not-allowed select-none"
                     >
                       <div className="flex items-center justify-between">
-                        <span className="font-bold text-sm text-gray-900">Midtrans Gateway</span>
-                        <span className="text-[10px] bg-gray-100 text-gray-600 font-medium px-1.5 py-0.5 rounded">
-                          VA / CC
+                        <span className="font-bold text-sm text-gray-500">Midtrans Gateway</span>
+                        <span className="text-[10px] bg-gray-200 text-gray-600 font-medium px-1.5 py-0.5 rounded">
+                          Nonaktif
                         </span>
                       </div>
-                      <span className="text-xs text-gray-500">
+                      <span className="text-xs text-gray-400">
                         Virtual Account & Kartu Kredit
                       </span>
                     </button>
@@ -350,7 +346,7 @@ export default function Home() {
                       <span className="material-symbols-outlined text-[20px]">
                         favorite
                       </span>
-                      Lanjutkan Donasi Rp {currentDisplayAmount} ({paymentMethod === "qris" ? "QRIS" : "Midtrans"})
+                      Lanjutkan Donasi Rp {currentDisplayAmount} (QRIS)
                     </>
                   )}
                 </button>

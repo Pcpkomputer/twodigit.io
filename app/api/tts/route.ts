@@ -1,6 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
+async function fetchGoogleTTS(text: string): Promise<Buffer> {
+  const url = `https://translate.google.com/translate_tts?ie=UTF-8&q=${encodeURIComponent(text)}&tl=id&client=tw-ob`;
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+    },
+  });
+
+  if (!res.ok) {
+    throw new Error(`Google TTS failed with status ${res.status}`);
+  }
+
+  const arrayBuffer = await res.arrayBuffer();
+  return Buffer.from(arrayBuffer);
+}
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const text = searchParams.get("text");
@@ -11,9 +27,9 @@ export async function GET(req: NextRequest) {
 
   const cleanText = text.trim().slice(0, 400);
 
+  // 1. Try Microsoft Edge Neural Voice (High Quality id-ID-GadisNeural)
   try {
     const tts = new MsEdgeTTS();
-    // Use Indonesian Female Neural voice (id-ID-GadisNeural)
     await tts.setMetadata(
       "id-ID-GadisNeural",
       OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3
@@ -28,21 +44,34 @@ export async function GET(req: NextRequest) {
       streamResult.audioStream.on("error", (err: Error) => reject(err));
     });
 
-    if (!audioBuffer || audioBuffer.length === 0) {
-      throw new Error("Empty audio buffer generated from Neural TTS");
+    if (audioBuffer && audioBuffer.length > 0) {
+      return new NextResponse(new Uint8Array(audioBuffer), {
+        headers: {
+          "Content-Type": "audio/mpeg",
+          "Accept-Ranges": "bytes",
+          "Content-Length": audioBuffer.byteLength.toString(),
+          "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
+        },
+      });
     }
+  } catch (edgeError) {
+    console.warn("Edge TTS failed, falling back to Google Indonesian TTS:", edgeError);
+  }
 
-    return new NextResponse(new Uint8Array(audioBuffer), {
+  // 2. Resilient Fallback to Google Indonesian TTS
+  try {
+    const googleAudioBuffer = await fetchGoogleTTS(cleanText);
+    return new NextResponse(new Uint8Array(googleAudioBuffer), {
       headers: {
         "Content-Type": "audio/mpeg",
         "Accept-Ranges": "bytes",
-        "Content-Length": audioBuffer.byteLength.toString(),
+        "Content-Length": googleAudioBuffer.byteLength.toString(),
         "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
       },
     });
-  } catch (error) {
-    console.error("Neural TTS generation error:", error);
-    return new NextResponse("Failed to generate Indonesian TTS audio", {
+  } catch (googleError) {
+    console.error("All TTS generation methods failed:", googleError);
+    return new NextResponse("Failed to generate TTS audio", {
       status: 500,
     });
   }

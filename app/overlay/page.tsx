@@ -93,12 +93,24 @@ export default function OverlayPage() {
 
       audio.pause();
       audio.src = audioUrl;
+      audio.volume = 1.0;
       audio.load();
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn("Audio autoplay blocked by OBS/browser:", err);
+          console.warn("Audio element play failed, falling back to Web Speech API:", err);
+          if ("speechSynthesis" in window) {
+            try {
+              window.speechSynthesis.cancel();
+              const utterance = new SpeechSynthesisUtterance(text);
+              utterance.lang = "id-ID";
+              utterance.rate = 1.0;
+              window.speechSynthesis.speak(utterance);
+            } catch (synthErr) {
+              console.error("SpeechSynthesis fallback failed:", synthErr);
+            }
+          }
         });
       }
     } catch (e) {
@@ -152,8 +164,9 @@ export default function OverlayPage() {
     const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${currentAlert.message ? currentAlert.message : ""}`;
     playTTS(speechText);
 
-    // Display alert duration (15s if media attached, otherwise 8s)
-    const alertDuration = currentAlert.mediaUrl ? 15000 : 8000;
+    // Display alert duration: dynamic based on text length to avoid cut-off
+    const estimatedSpeechTime = Math.max(8000, speechText.length * 85);
+    const alertDuration = currentAlert.mediaUrl ? Math.max(15000, estimatedSpeechTime) : estimatedSpeechTime;
 
     const timer = setTimeout(() => {
       setCurrentAlert(null); // Triggers next item cleanly

@@ -133,17 +133,18 @@ function TopDonorsOverlayContent() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex items-start justify-start p-6 select-none font-sans pointer-events-none">
-      <div className="w-full max-w-sm bg-surface/95 backdrop-blur-2xl border-2 border-primary/40 rounded-3xl p-5 shadow-2xl ring-4 ring-primary/10 transition-all duration-500 animate-in fade-in zoom-in-95">
+      {/* Saweria Style Top Donors: No white card background, floating bold yellow & black text stroke */}
+      <div className="w-full max-w-sm flex flex-col gap-2.5 drop-shadow-2xl">
         {/* Header Title */}
-        <div className="flex items-center justify-between pb-3 mb-3 border-b border-outline-variant">
+        <div className="flex items-center justify-between pb-1">
           <div className="flex items-center gap-2">
-            <span className="text-xl">🏆</span>
-            <h2 className="font-extrabold text-base text-on-surface tracking-tight truncate">
+            <span className="text-2xl">🏆</span>
+            <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase tracking-tight font-black truncate">
               {title}
             </h2>
           </div>
           {startDate && (
-            <span className="text-[10px] font-medium text-on-surface-variant bg-surface-container-high px-2 py-0.5 rounded-full border border-outline-variant">
+            <span className="saweria-text-sm text-[11px] text-yellow-300 font-bold bg-black/60 px-2 py-0.5 rounded-md border border-black">
               Filtered
             </span>
           )}
@@ -151,31 +152,27 @@ function TopDonorsOverlayContent() {
 
         {/* List of Top Donors */}
         {topDonors.length === 0 ? (
-          <div className="text-center py-6 text-xs text-on-surface-variant font-medium">
+          <div className="saweria-text-white text-sm font-bold py-2">
             {isLoading ? "Memuat data donatur..." : "Belum ada donasi tercatat"}
           </div>
         ) : (
-          <div className="flex flex-col gap-2.5">
+          <div className="flex flex-col gap-2">
             {topDonors.map((donor, idx) => (
               <div
                 key={donor.name + idx}
-                className="flex items-center justify-between p-2.5 rounded-2xl bg-surface-container-low/90 border border-outline-variant/60 shadow-sm transition-all duration-300 hover:scale-[1.02]"
+                className="flex items-center justify-between px-3 py-2 rounded-xl bg-black/40 backdrop-blur-sm border border-black/80 transition-all duration-300"
               >
                 {/* Rank & Name */}
                 <div className="flex items-center gap-2.5 min-w-0">
-                  <div
-                    className={`w-7 h-7 rounded-xl flex items-center justify-center font-bold text-xs border shrink-0 ${getRankBadge(
-                      idx
-                    )}`}
-                  >
+                  <span className="text-base shrink-0 font-black">
                     {getCrownOrMedal(idx)}
-                  </div>
+                  </span>
                   <div className="min-w-0">
-                    <p className="font-bold text-xs text-on-surface truncate">
+                    <p className="saweria-text-white text-sm md:text-base font-black truncate">
                       {donor.name}
                     </p>
                     {donor.count > 1 && (
-                      <p className="text-[10px] text-on-surface-variant">
+                      <p className="saweria-text-sm text-[10px] text-yellow-200">
                         {donor.count}x donasi
                       </p>
                     )}
@@ -183,8 +180,8 @@ function TopDonorsOverlayContent() {
                 </div>
 
                 {/* Amount */}
-                <div className="text-right shrink-0">
-                  <span className="text-xs font-black text-primary">
+                <div className="text-right shrink-0 ml-2">
+                  <span className="saweria-text-yellow text-sm md:text-base font-black">
                     Rp {new Intl.NumberFormat("id-ID").format(donor.totalAmount)}
                   </span>
                 </div>

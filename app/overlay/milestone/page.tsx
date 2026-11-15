@@ -98,44 +98,38 @@ function MilestoneOverlayContent() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex items-start justify-center p-6 select-none font-sans pointer-events-none">
-      <div className="w-full max-w-lg bg-surface/95 backdrop-blur-2xl border-2 border-primary/40 rounded-3xl p-5 shadow-2xl ring-4 ring-primary/10 transition-all duration-500 animate-in fade-in zoom-in-95">
-        {/* Header Title & Percentage Badge */}
-        <div className="flex items-center justify-between gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full bg-primary animate-pulse" />
-            <h2 className="font-extrabold text-lg text-on-surface tracking-tight truncate">
-              {milestone.title}
-            </h2>
-          </div>
+      {/* Saweria Style Milestone: Transparent floating overlay with bold yellow & black border */}
+      <div className="w-full max-w-lg flex flex-col gap-2 drop-shadow-2xl">
+        {/* Header Title & Percentage */}
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="saweria-text-yellow text-xl md:text-2xl tracking-tight uppercase font-black truncate">
+            {milestone.title}
+          </h2>
 
-          <div className="px-3 py-1 bg-primary/10 border border-primary/20 rounded-full">
-            <span className="text-sm font-black text-primary">
-              {milestone.percentage}%
-            </span>
+          <div className="saweria-text-white text-lg md:text-xl font-black">
+            {milestone.percentage}%
           </div>
         </div>
 
         {/* Progress Bar Track */}
-        <div className="w-full h-5 bg-surface-container-highest rounded-full overflow-hidden p-1 border border-outline-variant shadow-inner relative mb-3">
+        <div className="w-full h-6 bg-black/70 rounded-full overflow-hidden p-0.5 border-2 border-black shadow-2xl relative">
           <div
-            className="h-full bg-gradient-to-r from-primary via-primary-container to-tertiary rounded-full transition-all duration-700 ease-out shadow-md"
+            className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-yellow-300 rounded-full transition-all duration-700 ease-out shadow-inner"
             style={{ width: `${Math.max(milestone.percentage, 2)}%` }}
           />
         </div>
 
-        {/* Footer Figures & Stats */}
-        <div className="flex items-center justify-between text-xs font-semibold text-on-surface-variant">
-          <div className="flex items-center gap-1.5">
-            <span className="text-on-surface font-bold text-sm">
-              Rp {formattedCurrent}
-            </span>
-            <span className="text-outline">/</span>
+        {/* Footer Figures & Donors Count */}
+        <div className="flex items-center justify-between">
+          <div className="saweria-text-white text-sm md:text-base font-black flex items-center gap-1.5">
+            <span className="saweria-text-yellow">Rp {formattedCurrent}</span>
+            <span className="text-white">/</span>
             <span>Rp {formattedTarget}</span>
           </div>
 
           {milestone.donorCount > 0 && (
-            <div className="text-[11px] font-medium bg-surface-container-high px-2 py-0.5 rounded-md border border-outline-variant">
-              {milestone.donorCount} donatur
+            <div className="saweria-text-yellow text-xs md:text-sm font-black">
+              {milestone.donorCount} Donatur
             </div>
           )}
         </div>

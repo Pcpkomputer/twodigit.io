@@ -116,3 +116,45 @@ body {
   background-color: var(--color-background);
   color: var(--color-on-surface);
 }
+
+/* Saweria-style Streamer Floating Text & Outlines (High Contrast for Games like GTA 6) */
+.saweria-text-yellow {
+  color: #fbbf24;
+  font-weight: 900;
+  text-shadow: 
+    -2px -2px 0 #000,  
+     2px -2px 0 #000,
+    -2px  2px 0 #000,
+     2px  2px 0 #000,
+    -3px  0   0 #000,
+     3px  0   0 #000,
+     0   -3px 0 #000,
+     0    3px 0 #000,
+     0    4px 10px rgba(0, 0, 0, 0.9);
+}
+
+.saweria-text-white {
+  color: #ffffff;
+  font-weight: 800;
+  text-shadow: 
+    -2px -2px 0 #000,  
+     2px -2px 0 #000,
+    -2px  2px 0 #000,
+     2px  2px 0 #000,
+    -3px  0   0 #000,
+     3px  0   0 #000,
+     0   -3px 0 #000,
+     0    3px 0 #000,
+     0    4px 10px rgba(0, 0, 0, 0.9);
+}
+
+.saweria-text-sm {
+  font-weight: 800;
+  text-shadow: 
+    -1.5px -1.5px 0 #000,  
+     1.5px -1.5px 0 #000,
+    -1.5px  1.5px 0 #000,
+     1.5px  1.5px 0 #000,
+     0      2px 4px rgba(0, 0, 0, 0.8);
+}
+

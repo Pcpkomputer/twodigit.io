@@ -209,34 +209,37 @@ export default function OverlayPage() {
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
       {currentAlert && (
-        <div className="animate-in fade-in zoom-in-95 duration-500 max-w-xl w-full flex flex-col items-center">
-          {/* Main Card */}
-          <div className="w-full bg-surface/95 backdrop-blur-xl border-2 border-primary rounded-3xl p-6 shadow-2xl flex flex-col items-center text-center ring-4 ring-primary/20">
-            {/* Header / Amount Badge */}
-            <div className="inline-flex items-center gap-2 px-5 py-2 bg-gradient-to-r from-primary to-primary-container text-white font-bold rounded-full shadow-lg text-lg mb-4 animate-bounce">
-              <span className="material-symbols-outlined text-[24px]">
-                favorite
-              </span>
-              <span>
-                Rp.{" "}
-                {new Intl.NumberFormat("id-ID").format(currentAlert.amount)}
+        <div className="animate-in fade-in zoom-in-95 duration-500 max-w-2xl w-full flex flex-col items-center text-center">
+          {/* Saweria Style Floating Alert: No white background, high-contrast bold yellow & black border */}
+          <div className="flex flex-col items-center justify-center gap-1.5 drop-shadow-2xl">
+            {/* Donor Name */}
+            <div className="saweria-text-yellow text-4xl md:text-5xl tracking-tight uppercase font-black">
+              {currentAlert.name}
+            </div>
+
+            {/* Amount Banner */}
+            <div className="saweria-text-white text-2xl md:text-3xl tracking-tight flex items-center justify-center gap-2 font-black">
+              <span>mendonasikan</span>
+              <span className="saweria-text-yellow">
+                Rp {new Intl.NumberFormat("id-ID").format(currentAlert.amount)}
               </span>
             </div>
 
-            {/* Donor Name */}
-            <h2 className="text-2xl font-extrabold text-on-surface mb-2">
-              <span className="text-primary">{currentAlert.name}</span>
-            </h2>
-
             {/* Message */}
             {currentAlert.message && (
-              <p className="text-lg text-on-surface-variant font-medium bg-surface-container-low px-5 py-3 rounded-2xl w-full border border-outline-variant shadow-inner mb-4">
-                &ldquo;{currentAlert.message}&rdquo;
-              </p>
+              <div className="mt-3 px-6 py-2.5 rounded-2xl bg-black/40 backdrop-blur-sm border-2 border-black/80 max-w-xl">
+                <p className="saweria-text-white text-xl md:text-2xl font-black italic tracking-wide">
+                  &ldquo;{currentAlert.message}&rdquo;
+                </p>
+              </div>
             )}
 
             {/* Media Share YouTube Player */}
-            {videoId && <YouTubeMedia videoId={videoId} />}
+            {videoId && (
+              <div className="w-full max-w-lg mt-3 rounded-2xl overflow-hidden border-4 border-black shadow-2xl">
+                <YouTubeMedia videoId={videoId} />
+              </div>
+            )}
           </div>
         </div>
       )}

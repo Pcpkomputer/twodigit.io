@@ -209,26 +209,30 @@ export default function OverlayPage() {
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
       {currentAlert && (
-        <div className="animate-in fade-in zoom-in-95 duration-500 max-w-2xl w-full flex flex-col items-center text-center">
-          {/* Saweria Style Floating Alert: No white background, high-contrast bold yellow & black border */}
-          <div className="flex flex-col items-center justify-center gap-1.5 drop-shadow-2xl">
+        <div className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible">
+          {/* Saweria Style Floating Alert: Clean vector stroke, no clipped box */}
+          <div className="flex flex-col items-center justify-center gap-2 overflow-visible">
             {/* Donor Name */}
-            <div className="saweria-text-yellow text-4xl md:text-5xl tracking-tight uppercase font-black">
-              {currentAlert.name}
+            <div>
+              <span className="saweria-text-yellow text-4xl md:text-5xl uppercase font-black">
+                {currentAlert.name}
+              </span>
             </div>
 
             {/* Amount Banner */}
-            <div className="saweria-text-white text-2xl md:text-3xl tracking-tight flex items-center justify-center gap-2 font-black">
-              <span>mendonasikan</span>
-              <span className="saweria-text-yellow">
+            <div className="flex items-center justify-center gap-2">
+              <span className="saweria-text-white text-2xl md:text-3xl font-black">
+                mendonasikan
+              </span>
+              <span className="saweria-text-yellow text-2xl md:text-3xl font-black">
                 Rp {new Intl.NumberFormat("id-ID").format(currentAlert.amount)}
               </span>
             </div>
 
             {/* Message */}
             {currentAlert.message && (
-              <div className="mt-3 px-6 py-2.5 rounded-2xl bg-black/40 backdrop-blur-sm border-2 border-black/80 max-w-xl">
-                <p className="saweria-text-white text-xl md:text-2xl font-black italic tracking-wide">
+              <div className="mt-3 px-6 py-2.5 rounded-2xl bg-black/45 border-2 border-black/80 max-w-xl">
+                <p className="saweria-text-white text-xl md:text-2xl font-black italic">
                   &ldquo;{currentAlert.message}&rdquo;
                 </p>
               </div>

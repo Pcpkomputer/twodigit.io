@@ -133,13 +133,13 @@ function TopDonorsOverlayContent() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex items-start justify-start p-6 select-none font-sans pointer-events-none">
-      {/* Saweria Style Top Donors: No white card background, floating bold yellow & black text stroke */}
-      <div className="w-full max-w-sm flex flex-col gap-2.5 drop-shadow-2xl">
+      {/* Saweria Style Top Donors: Clean vector stroke, no clipped box */}
+      <div className="w-full max-w-sm flex flex-col gap-2.5 overflow-visible">
         {/* Header Title */}
-        <div className="flex items-center justify-between pb-1">
+        <div className="flex items-center justify-between pb-1 overflow-visible">
           <div className="flex items-center gap-2">
             <span className="text-2xl">🏆</span>
-            <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase tracking-tight font-black truncate">
+            <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
               {title}
             </h2>
           </div>

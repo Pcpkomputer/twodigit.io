@@ -98,15 +98,15 @@ function MilestoneOverlayContent() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex items-start justify-center p-6 select-none font-sans pointer-events-none">
-      {/* Saweria Style Milestone: Transparent floating overlay with bold yellow & black border */}
-      <div className="w-full max-w-lg flex flex-col gap-2 drop-shadow-2xl">
+      {/* Saweria Style Milestone: Transparent floating overlay with clean vector stroke */}
+      <div className="w-full max-w-lg flex flex-col gap-2 overflow-visible">
         {/* Header Title & Percentage */}
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="saweria-text-yellow text-xl md:text-2xl tracking-tight uppercase font-black truncate">
+        <div className="flex items-center justify-between gap-3 overflow-visible">
+          <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
             {milestone.title}
           </h2>
 
-          <div className="saweria-text-white text-lg md:text-xl font-black">
+          <div className="saweria-text-white text-lg md:text-xl font-black shrink-0">
             {milestone.percentage}%
           </div>
         </div>

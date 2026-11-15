@@ -1,6 +1,6 @@
 # 🚀 Twodigit.io - MVP Edition
 
-A production-ready, ultra-low latency, and zero-platform-fee donation overlay engine designed for self-hosted streamers. This Minimum Viable Product (MVP) replaces traditional third-party donation platforms (which charge 5-6% cuts) with an ultra-lightweight serverless architecture that routes 100% of non-MDR revenue directly to the creator's bank account.
+A production-ready, ultra-low latency, and zero-platform-fee donation overlay engine designed for self-hosted streamers. This platform replaces traditional third-party donation platforms (which charge 5-6% cuts) with an ultra-lightweight serverless architecture that routes 100% of revenue directly to the creator.
 
 ---
 
@@ -18,34 +18,126 @@ While others waste energy exposing faces, we expose architectural inefficiencies
 
 This MVP platform leverages a lightweight, event-driven architecture designed to keep operational costs at exactly **$0/month** with zero database overhead.
 
-*   **Payment Gateway:** Midtrans Core/Snap API (Direct 0.7% standard QRIS interchange rate, no platform markup).
-*   **Backend Services:** Node.js deployed on Vercel Serverless Functions.
+*   **Primary Payment Method (0% Fees):** Static QRIS with Android Notification Listener & Collision-Free 3-Digit Unique Code verification.
+*   **Secondary Payment Method:** Midtrans Snap API (Virtual Account, Credit Cards, E-Wallets).
+*   **Backend Services:** Next.js deployed on Vercel Serverless Functions.
+*   **Database & Persistence:** Supabase PostgreSQL with Row Level Security (RLS).
 *   **Real-time Layer:** Pusher Channels for sub-second alert delivery and real-time state synchronization.
-*   **Frontend Overlay:** Vanilla HTML5 / Tailwind CSS / Web Speech API (Native browser-level Text-to-Speech and client-side leaderboard sorting).
+*   **Frontend Overlay:** Next.js / Tailwind CSS / Edge TTS with YouTube Media Share support.
 
 ---
 
 ## ✨ Features
 
-*   **0% Platform Commission Fee:** Keep your revenue whole. Only pay the native payment gateway interchange rate.
-*   **Idempotent Webhook Handler:** Prevents duplicate alert triggers from unstable internet retries.
-*   **Asynchronous Audio/Visual Queue:** A robust JavaScript array-based queue system that ensures Text-to-Speech (TTS) messages play sequentially without overlapping or crashing the OBS Browser Source.
-*   **Serverless Auto-scaling:** Zero cold-start latency optimization for high-concurrency streaming events.
+*   **0% Platform Commission Fee & 0% MDR:** With Static QRIS + Android Listener, 100% of the funds land directly in your bank/e-wallet account with zero gateway fee.
+*   **Anti-Collision Unique Code System:** Generates a randomized 1–999 unique amount modifier for each pending transaction with collision avoidance across all active orders within a 15-minute expiration window.
+*   **Multi-Format Android Notification Parser:** Smart regex engine that parses incoming bank & e-wallet notifications (BCA, Mandiri, BRI, BNI, GoPay, OVO, Dana, ShopeePay, LinkAja) into settled donations.
+*   **Unified Webhook Endpoint:** `/api/webhook/midtrans` intelligently differentiates between Midtrans JSON signatures and raw Android notification pushes via `if...else`, while a dedicated `/api/webhook/qris` endpoint is also provided.
+*   **Idempotent Alert Dispatch:** Synchronizes settled QRIS and Midtrans transactions into the central `donations` table to power milestone goals and top donor leaderboards.
+*   **Asynchronous Audio/Visual Queue:** Web Speech / Edge TTS and YouTube iframe player seamlessly play alert popups without crashing the OBS Browser Source.
 
 ---
 
-## 🚀 Quick Start & Deployment
+## 📱 Static QRIS & Android Notification Setup (Recommended)
 
-Want to stop being financially dependent and finally upgrade your tech stack? Follow these steps to host your own profile donation page:
+This is the primary zero-cost workflow. Whenever someone donates via QRIS, the system calculates a 3-digit unique code (e.g., Rp 50.000 + 412 = **Rp 50.412**). When your Android phone receives the notification, it forwards it to your webhook, instantly triggering the OBS alert!
 
-### 1. Environment Variables Configuration
-Create a `.env` file in your root directory (and add these to your Vercel Dashboard). Fill in the values with your own credentials:
+### 1. Replace the QRIS Image
+Place your static QRIS image at:
+```text
+public/images/qris.jpg
+```
+
+### 2. Configure Your Android Device
+Use an automation app such as **MacroDroid**, **Tasker**, or **Notification Listener / Webhook Forwarder**:
+
+1. **Trigger:** `Notification Received`
+   - Select your mobile banking / e-wallet apps: (e.g., *BCA mobile, Livin by Mandiri, GoPay Merchant, ShopeePay, DANA, OVO*).
+2. **Action:** `HTTP Request (POST)`
+   - **URL:** `https://your-domain.vercel.app/api/webhook/qris` *(or `https://your-domain.vercel.app/api/webhook/midtrans`)*
+   - **Request Content-Type:** `application/json`
+   - **Request Headers (Optional):**
+     ```text
+     x-api-key: your_secret_key_here
+     ```
+   - **Request Body:**
+     ```json
+     {
+       "title": "{notif_title}",
+       "message": "{notif_message}"
+     }
+     ```
+3. Whenever a payment arrives, the app sends the notification body to the webhook. The server matches the exact nominal, marks the order as `settled`, and fires the Pusher alert!
+
+---
+
+## 🗄️ Database Setup (Supabase)
+
+Twodigit uses Supabase PostgreSQL for persistence and real-time state. Execute both migration scripts in your **Supabase Dashboard ➡️ SQL Editor**:
+
+### 1. Donations Table (`001_create_donations_table.sql`)
+Stores settled donations for milestone tracking and top donors leaderboard:
+```sql
+CREATE TABLE IF NOT EXISTS public.donations (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    order_id TEXT UNIQUE NOT NULL,
+    amount NUMERIC NOT NULL,
+    donor_name TEXT DEFAULT 'Anonim',
+    message TEXT DEFAULT '',
+    media_url TEXT DEFAULT '',
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_donations_created_at ON public.donations(created_at);
+CREATE INDEX IF NOT EXISTS idx_donations_order_id ON public.donations(order_id);
+
+ALTER TABLE public.donations ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read access to donations" ON public.donations FOR SELECT USING (true);
+CREATE POLICY "Allow service role full access to donations" ON public.donations FOR ALL TO service_role USING (true) WITH CHECK (true);
+```
+
+### 2. QRIS Transactions Table (`002_create_qris_transactions.sql`)
+Tracks pending orders, assigned unique codes, and expiration states:
+```sql
+CREATE TABLE IF NOT EXISTS public.qris_transactions (
+    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+    order_id TEXT UNIQUE NOT NULL,
+    donor_name TEXT DEFAULT 'Anonim',
+    message TEXT DEFAULT '',
+    media_url TEXT DEFAULT '',
+    base_amount NUMERIC NOT NULL,
+    unique_code INT NOT NULL,
+    total_amount NUMERIC NOT NULL,
+    status TEXT DEFAULT 'pending' NOT NULL, -- 'pending', 'settled', 'expired'
+    expired_at TIMESTAMPTZ NOT NULL,
+    settled_at TIMESTAMPTZ,
+    raw_notification TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_qris_lookup ON public.qris_transactions (total_amount, status);
+CREATE INDEX IF NOT EXISTS idx_qris_order_id ON public.qris_transactions (order_id);
+CREATE INDEX IF NOT EXISTS idx_qris_status_expired ON public.qris_transactions (status, expired_at);
+
+ALTER TABLE public.qris_transactions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read access to qris_transactions" ON public.qris_transactions FOR SELECT USING (true);
+CREATE POLICY "Allow service role full access to qris_transactions" ON public.qris_transactions FOR ALL TO service_role USING (true) WITH CHECK (true);
+```
+
+---
+
+## 🚀 Environment Variables Configuration
+
+Create a `.env.local` file in your root directory (and add these to your Vercel Dashboard):
 
 ```env
-NEXT_PUBLIC_CREATOR_TITLE=""
-NEXT_PUBLIC_CREATOR_DESCRIPTION=""
+NEXT_PUBLIC_CREATOR_TITLE="Support Yudhacode"
+NEXT_PUBLIC_CREATOR_DESCRIPTION="Support developer tools & open-source streaming technology."
 
-# Midtrans Credentials
+# QRIS Webhook Secret (Optional but recommended)
+QRIS_WEBHOOK_SECRET="your-super-secret-key"
+
+# Midtrans Credentials (Optional / Fallback Gateway)
 MIDTRANS_MERCHANT_ID=""
 NEXT_PUBLIC_MIDTRANS_CLIENT_KEY=""
 MIDTRANS_SERVER_KEY=""
@@ -110,97 +202,20 @@ https://your-domain.vercel.app/overlay/top-donors?limit=5&title=Top+Donatur+Bula
 
 ---
 
-## 🗄️ Database Setup (Supabase)
+## 🚀 Run Locally & Deploy
 
-To enable milestone goals and historical top donor tracking, execute this SQL script in your **Supabase Dashboard ➡️ SQL Editor**:
-
-```sql
-CREATE TABLE IF NOT EXISTS public.donations (
-    id BIGINT GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
-    order_id TEXT UNIQUE NOT NULL,
-    amount NUMERIC NOT NULL,
-    donor_name TEXT DEFAULT 'Anonim',
-    message TEXT DEFAULT '',
-    media_url TEXT DEFAULT '',
-    created_at TIMESTAMPTZ DEFAULT NOW() NOT NULL
-);
-
--- Indices for rapid date filtering
-CREATE INDEX IF NOT EXISTS idx_donations_created_at ON public.donations(created_at);
-CREATE INDEX IF NOT EXISTS idx_donations_order_id ON public.donations(order_id);
-
--- Row Level Security (RLS)
-ALTER TABLE public.donations ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow public read access to donations" 
-ON public.donations FOR SELECT 
-USING (true);
-
-CREATE POLICY "Allow service role full access to donations" 
-ON public.donations FOR ALL 
-TO service_role 
-USING (true)
-WITH CHECK (true);
-```
-
-### 2. Run Locally & Deploy to Vercel
 ```bash
 # Install dependencies
 npm install
 
-# Deploy to Vercel instantly
-npm install -g vercel
-vercel deploy
+# Run development server
+npm run dev
+
+# Deploy to Vercel
+vercel --prod
 ```
 
 ---
 
-### 3. Setting Up Environment Variables in Vercel Dashboard
-To securely inject your secrets into the production environment without committing them to git, add them directly inside the Vercel Dashboard:
-
-1. Log in to your [Vercel Account](https://vercel.com) and select your project.
-2. Navigate to the **Settings** tab at the top menu.
-3. Click on **Environment Variables** in the left sidebar.
-4. In the **Key** field, type the variable name (e.g., `MIDTRANS_SERVER_KEY`).
-5. In the **Value** field, paste your corresponding credential token.
-6. Under **Environments**, check the environments where this token applies (**Production**, **Preview**, and/or **Development**).
-7. Click **Add** to save. Repeat this process for all credentials listed in the template above.
-8. *Note:* If you update your variables after the first deployment, you must trigger a new deployment via the Vercel dashboard or CLI (`vercel --prod`) for the changes to take effect.
-
-
-## 💳 Moving to Production & Webhook Configuration
-
-To move away from the Midtrans Sandbox environment and start accepting real money from your viewers, you must switch your account status to **Production**, complete the mandatory compliance verification (KYC), and wire up the notification webhook.
-
-### 📋 Checklist & Required Documents (Individual / UMKM Tier)
-If you register as an individual creator or micro-business, prepare the following documents:
-1.  **KTP (Identity Card):** A clear, non-glare photo of your Indonesian National ID.
-2.  **Selfie with KTP:** Ensure your face and the KTP data are clearly visible.
-3.  **NPWP (Tax ID Number):** Optional for some initial transaction tiers, but highly recommended for continuous smooth payouts and professional compliance.
-4.  **Personal Bank Account:** The account name **must match exactly** with the name on your KTP. This is where your cleared funds will be automatically disbursed.
-
-### 🔗 Configuring Midtrans Notification Webhook
-For the real-time alert overlay and leaderboard to work, Midtrans needs to know where to send payment status updates. You must configure this in both your **Sandbox** and **Production** dashboards:
-
-1.  Deploy your project to Vercel first to get your live deployment URL (e.g., `https://vercel.app`).
-2.  Log in to your Midtrans Dashboard.
-3.  Go to **Settings** ➡️ **Configuration**.
-4.  Locate the **Payment Notification URL** field and change it to your Vercel API webhook endpoint:
-    ```text
-    https://vercel.app/api/webhook/midtrans
-    ```
-5.  *(Optional)* Set the **Redirection URL** fields (Finish, Unfinished, Error URL) if you want to redirect the supporters back to your custom streaming profile page after they finish paying.
-6.  Click **Update** at the bottom of the page to save the configurations.
-
-### 🔄 Activation Steps:
-1.  Toggle the switch from **Sandbox** to **Production** mode on the top left corner of the Midtrans Dashboard.
-2.  Click **"Passport / Registration"** and fill out your business profile information truthfully (Select "Perorangan / Individual" tier).
-3.  Upload your KYC documents (KTP and Selfie).
-4.  Activate your preferred payment methods (Make sure to check **QRIS** and **E-Wallets** for streaming donation optimization).
-5.  Wait for the Midtrans team to review your application (Usually takes 1-3 business days).
-6.  Once approved, update your `.env` keys in your production server with the new production credentials, and flip `MIDTRANS_IS_PRODUCTION` to `"true"`.
-
----
-
 ## 📝 License
-Distributed under the MIT License. Feel free to fork, clone, and use this to elevate your streaming career from an "instantly-triggered amateur" to a "technically-sovereign professional."
+Distributed under the MIT License. Feel free to fork, clone, and use this to elevate your streaming career with full technical sovereignty and 0% commission fees.

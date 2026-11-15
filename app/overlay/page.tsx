@@ -32,7 +32,6 @@ const getYouTubeVideoId = (url: string): string | null => {
 
 // Dedicated YouTube Player Component
 function YouTubeMedia({ videoId }: { videoId: string }) {
-  // YouTube strict embed URL for iframe
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&controls=0&loop=0&rel=0&modestbranding=1&enablejsapi=1`;
 
   return (
@@ -52,8 +51,9 @@ export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
 
-  // Dedicated Audio Element ref
+  // Dedicated Audio Element ref & dismiss timer
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Initialize and unlock audio element on mount
   useEffect(() => {
@@ -64,7 +64,7 @@ export default function OverlayPage() {
     // Optional user interaction unlock listener for OBS interact window
     const unlockAudio = () => {
       if (audioRef.current) {
-        audioRef.current.play().catch(() => { });
+        audioRef.current.play().catch(() => {});
       }
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
@@ -79,7 +79,7 @@ export default function OverlayPage() {
     };
   }, []);
 
-  const playTTS = (text: string) => {
+  const playTTS = (text: string, onEnded?: () => void) => {
     if (!text || typeof window === "undefined") return;
 
     try {
@@ -96,6 +96,11 @@ export default function OverlayPage() {
       audio.volume = 1.0;
       audio.load();
 
+      // Hook onended callback so visual card stays until audio finishes!
+      audio.onended = () => {
+        onEnded?.();
+      };
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
@@ -106,15 +111,22 @@ export default function OverlayPage() {
               const utterance = new SpeechSynthesisUtterance(text);
               utterance.lang = "id-ID";
               utterance.rate = 1.0;
+              utterance.onend = () => {
+                onEnded?.();
+              };
               window.speechSynthesis.speak(utterance);
             } catch (synthErr) {
               console.error("SpeechSynthesis fallback failed:", synthErr);
+              onEnded?.();
             }
+          } else {
+            onEnded?.();
           }
         });
       }
     } catch (e) {
       console.error("TTS error:", e);
+      onEnded?.();
     }
   };
 
@@ -155,24 +167,41 @@ export default function OverlayPage() {
     }
   }, [currentAlert, queue]);
 
-  // 2. Play alert, trigger TTS, and schedule auto-dismiss
+  // 2. Play alert, trigger TTS, and synchronize dismissal with speech end
   useEffect(() => {
     if (!currentAlert) return;
 
+    if (dismissTimeoutRef.current) {
+      clearTimeout(dismissTimeoutRef.current);
+    }
+
     // Speak donor message with natural Indonesian TTS (terbilang for amount)
     const amountWords = numberToIndonesianWords(currentAlert.amount);
-    const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${currentAlert.message ? currentAlert.message : ""}`;
-    playTTS(speechText);
+    const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${
+      currentAlert.message ? currentAlert.message : ""
+    }`;
 
-    // Display alert duration: dynamic based on text length to avoid cut-off
-    const estimatedSpeechTime = Math.max(8000, speechText.length * 85);
-    const alertDuration = currentAlert.mediaUrl ? Math.max(15000, estimatedSpeechTime) : estimatedSpeechTime;
+    // Safety fallback timer (18s max) in case of any network timeout
+    const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
+    dismissTimeoutRef.current = setTimeout(() => {
+      setCurrentAlert(null);
+    }, safetyTimeout);
 
-    const timer = setTimeout(() => {
-      setCurrentAlert(null); // Triggers next item cleanly
-    }, alertDuration);
+    // Play TTS and dismiss smoothly 2.5s after audio ends
+    playTTS(speechText, () => {
+      if (!currentAlert.mediaUrl) {
+        if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+        dismissTimeoutRef.current = setTimeout(() => {
+          setCurrentAlert(null);
+        }, 2500);
+      }
+    });
 
-    return () => clearTimeout(timer);
+    return () => {
+      if (dismissTimeoutRef.current) {
+        clearTimeout(dismissTimeoutRef.current);
+      }
+    };
   }, [currentAlert]);
 
   const videoId = currentAlert ? getYouTubeVideoId(currentAlert.mediaUrl) : null;

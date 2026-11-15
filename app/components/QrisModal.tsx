@@ -33,22 +33,42 @@ export default function QrisModal({
   const [secondsRemaining, setSecondsRemaining] = useState<number>(15 * 60);
   const [copied, setCopied] = useState<boolean>(false);
   const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isHandledRef = useRef<boolean>(false);
 
   // Reset state when a new order is opened
   useEffect(() => {
     if (!isOpen || !orderData) {
       setStatus("pending");
+      isHandledRef.current = false;
       return;
     }
 
     setStatus("pending");
     setCopied(false);
+    isHandledRef.current = false;
 
     // Calculate initial remaining seconds
     const expTime = new Date(orderData.expiredAt).getTime();
     const now = Date.now();
     const diffSec = Math.max(0, Math.floor((expTime - now) / 1000));
     setSecondsRemaining(diffSec);
+
+    // Helper to handle payment success only once
+    const handlePaymentSuccess = () => {
+      if (isHandledRef.current) return;
+      isHandledRef.current = true;
+
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      setStatus("settled");
+      toast.success("Pembayaran berhasil diverifikasi!", {
+        id: `payment-success-${orderData.orderId}`,
+      });
+      onSuccess?.();
+    };
 
     // 1. Setup Pusher Realtime Subscription for this order
     const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY;
@@ -64,24 +84,26 @@ export default function QrisModal({
       const channel = pusher.subscribe(channelName);
 
       channel.bind("payment-settled", () => {
-        setStatus("settled");
-        toast.success("Pembayaran berhasil diverifikasi!");
-        onSuccess?.();
+        handlePaymentSuccess();
       });
     }
 
     // 2. Setup Polling Fallback every 3 seconds
     const checkStatus = async () => {
+      if (isHandledRef.current) return;
+
       try {
         const res = await fetch(`/api/donation/qris/${orderData.orderId}`);
         if (!res.ok) return;
         const data = await res.json();
 
         if (data.status === "settled") {
-          setStatus("settled");
-          toast.success("Pembayaran berhasil diverifikasi!");
-          onSuccess?.();
+          handlePaymentSuccess();
         } else if (data.status === "expired") {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+          }
           setStatus("expired");
         }
       } catch (err) {
@@ -92,7 +114,10 @@ export default function QrisModal({
     pollIntervalRef.current = setInterval(checkStatus, 3000);
 
     return () => {
-      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
       if (pusher) pusher.disconnect();
     };
   }, [isOpen, orderData, onSuccess]);

@@ -74,8 +74,8 @@ export default function Home() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (numericAmount <= 0) {
-      toast.warning("Silakan pilih atau masukkan jumlah donasi yang valid.");
+    if (numericAmount < 1000) {
+      toast.warning("Minimal donasi adalah Rp 1.000.");
       return;
     }
 
@@ -199,11 +199,10 @@ export default function Home() {
                         <button
                           style={{ cursor: "pointer" }}
                           key={amt}
-                          className={`py-3 rounded-lg border font-body-md text-body-md transition-all focus:outline-none focus:ring-2 focus:ring-primary ${
-                            isSelected
-                              ? "border-2 border-primary bg-indigo-50 text-primary font-bold shadow-sm"
-                              : "border-outline-variant bg-white text-on-surface hover:border-primary"
-                          }`}
+                          className={`py-3 rounded-lg border font-body-md text-body-md transition-all focus:outline-none focus:ring-2 focus:ring-primary ${isSelected
+                            ? "border-2 border-primary bg-indigo-50 text-primary font-bold shadow-sm"
+                            : "border-outline-variant bg-white text-on-surface hover:border-primary"
+                            }`}
                           type="button"
                           onClick={() => handlePresetSelect(amt)}
                         >
@@ -217,16 +216,18 @@ export default function Home() {
                       Rp
                     </span>
                     <input
-                      className={`w-full py-3 pl-11 pr-3 rounded-lg border bg-white text-on-surface font-body-md text-body-md outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow ${
-                        customAmount ? "border-2 border-primary" : "border-outline-variant"
-                      }`}
-                      placeholder="Atau masukkan jumlah lainnya..."
+                      className={`w-full py-3 pl-11 pr-3 rounded-lg border bg-white text-on-surface font-body-md text-body-md outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-shadow ${customAmount ? "border-2 border-primary" : "border-outline-variant"
+                        }`}
+                      placeholder="Atau masukkan jumlah lainnya (min. Rp 1.000)..."
                       type="text"
                       inputMode="numeric"
                       value={customAmount}
                       onChange={handleCustomAmountChange}
                     />
                   </div>
+                  <p className="text-[11px] text-gray-500 mt-1.5 font-medium">
+                    * Minimal donasi adalah Rp 1.000
+                  </p>
                 </div>
 
                 {/* Payment Method Selector */}
@@ -238,11 +239,10 @@ export default function Home() {
                     <button
                       type="button"
                       onClick={() => setPaymentMethod("qris")}
-                      className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${
-                        paymentMethod === "qris"
-                          ? "border-2 border-primary bg-indigo-50/50 shadow-sm"
-                          : "border-outline-variant hover:border-gray-300"
-                      }`}
+                      className={`p-3 rounded-xl border text-left flex flex-col gap-1 transition-all ${paymentMethod === "qris"
+                        ? "border-2 border-primary bg-indigo-50/50 shadow-sm"
+                        : "border-outline-variant hover:border-gray-300"
+                        }`}
                     >
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-sm text-gray-900">QRIS Instant</span>

@@ -7,9 +7,9 @@ export async function POST(request: NextRequest) {
     const { amount, name, message, mediaUrl } = await request.json();
 
     const grossAmount = parseInt(String(amount), 10);
-    if (isNaN(grossAmount) || grossAmount <= 0) {
+    if (isNaN(grossAmount) || grossAmount < 1000) {
       return NextResponse.json(
-        { error: "Jumlah donasi tidak valid" },
+        { error: "Minimal donasi adalah Rp 1.000" },
         { status: 400 }
       );
     }

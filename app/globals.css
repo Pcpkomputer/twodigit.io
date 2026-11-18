@@ -117,6 +117,15 @@ body {
   color: var(--color-on-surface);
 }
 
+/* Ensure overlay pages are transparent in TikTok Live Studio / OBS Browser Sources */
+html:has(.overlay-container),
+body:has(.overlay-container),
+html.overlay-active,
+body.overlay-active {
+  background-color: transparent !important;
+  background: transparent !important;
+}
+
 /* Saweria-style Streamer Floating Text & Outlines (Clean Vector Stroke, No Slicing) */
 .saweria-text-yellow {
   color: #fbbf24;

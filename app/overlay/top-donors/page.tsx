@@ -160,7 +160,7 @@ function TopDonorsOverlayContent() {
             {topDonors.map((donor, idx) => (
               <div
                 key={donor.name + idx}
-                className="flex items-center justify-between px-3 py-2 rounded-xl bg-black/40 backdrop-blur-sm border border-black/80 transition-all duration-300"
+                className="flex items-center justify-between px-3 py-2 rounded-xl bg-black/60 border border-black/80 transition-all duration-300"
               >
                 {/* Rank & Name */}
                 <div className="flex items-center gap-2.5 min-w-0">
@@ -198,7 +198,7 @@ export default function TopDonorsOverlayPage() {
   return (
     <Suspense
       fallback={
-        <div className="fixed inset-0 flex items-center justify-center text-on-surface-variant">
+        <div className="fixed inset-0 flex items-center justify-center text-white/70 bg-transparent font-bold">
           Loading leaderboard...
         </div>
       }

@@ -142,7 +142,7 @@ export default function MilestoneOverlayPage() {
   return (
     <Suspense
       fallback={
-        <div className="fixed inset-0 flex items-center justify-center text-on-surface-variant">
+        <div className="fixed inset-0 flex items-center justify-center text-white/70 bg-transparent font-bold">
           Loading milestone...
         </div>
       }

@@ -55,17 +55,36 @@ export default function OverlayPage() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Helper to cleanly stop any ongoing speech/audio
+  const stopAudio = () => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  };
+
   // Initialize and unlock audio element on mount
   useEffect(() => {
     const audio = new Audio();
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
 
-    // Optional user interaction unlock listener for OBS interact window
+    // Safely unlock audio using a silent snippet (NEVER replay audioRef.current with previous sound!)
     const unlockAudio = () => {
-      if (audioRef.current) {
-        audioRef.current.play().catch(() => {});
-      }
+      try {
+        const silentAudio = new Audio(
+          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+        );
+        silentAudio.volume = 0.01;
+        silentAudio.play().catch(() => {});
+      } catch {}
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
     };
@@ -76,11 +95,38 @@ export default function OverlayPage() {
     return () => {
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
+      stopAudio();
     };
   }, []);
 
+  const fallbackSpeech = (text: string, onEnded?: () => void) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      onEnded?.();
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "id-ID";
+      utterance.rate = 1.0;
+      utterance.onend = () => {
+        onEnded?.();
+      };
+      utterance.onerror = () => {
+        onEnded?.();
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch (synthErr) {
+      console.error("SpeechSynthesis fallback failed:", synthErr);
+      onEnded?.();
+    }
+  };
+
   const playTTS = (text: string, onEnded?: () => void) => {
     if (!text || typeof window === "undefined") return;
+
+    // Immediately stop any ongoing audio to prevent overlapping speech
+    stopAudio();
 
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
@@ -88,45 +134,33 @@ export default function OverlayPage() {
       let audio = audioRef.current;
       if (!audio) {
         audio = new Audio();
+        audio.crossOrigin = "anonymous";
         audioRef.current = audio;
       }
 
-      audio.pause();
       audio.src = audioUrl;
       audio.volume = 1.0;
-      audio.load();
 
       // Hook onended callback so visual card stays until audio finishes!
       audio.onended = () => {
         onEnded?.();
       };
 
+      audio.onerror = () => {
+        console.warn("Audio element error, falling back to Web Speech API");
+        fallbackSpeech(text, onEnded);
+      };
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
           console.warn("Audio element play failed, falling back to Web Speech API:", err);
-          if ("speechSynthesis" in window) {
-            try {
-              window.speechSynthesis.cancel();
-              const utterance = new SpeechSynthesisUtterance(text);
-              utterance.lang = "id-ID";
-              utterance.rate = 1.0;
-              utterance.onend = () => {
-                onEnded?.();
-              };
-              window.speechSynthesis.speak(utterance);
-            } catch (synthErr) {
-              console.error("SpeechSynthesis fallback failed:", synthErr);
-              onEnded?.();
-            }
-          } else {
-            onEnded?.();
-          }
+          fallbackSpeech(text, onEnded);
         });
       }
     } catch (e) {
       console.error("TTS error:", e);
-      onEnded?.();
+      fallbackSpeech(text, onEnded);
     }
   };
 
@@ -148,7 +182,15 @@ export default function OverlayPage() {
 
     channel.bind("new-donation", (data: DonationAlert) => {
       console.log("Overlay received donation:", data);
-      setQueue((prev) => [...prev, data]);
+      if (!data || !data.orderId) return;
+
+      setQueue((prev) => {
+        // Prevent duplicate alerts in queue
+        if (prev.some((item) => item.orderId === data.orderId)) {
+          return prev;
+        }
+        return [...prev, data];
+      });
     });
 
     return () => {
@@ -201,6 +243,7 @@ export default function OverlayPage() {
       if (dismissTimeoutRef.current) {
         clearTimeout(dismissTimeoutRef.current);
       }
+      stopAudio();
     };
   }, [currentAlert]);
 

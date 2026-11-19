@@ -24,16 +24,37 @@ function ChatOverlayContent() {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Helper to cleanly stop any ongoing speech/audio
+  const stopAudio = () => {
+    setIsSpeaking(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  };
+
   // Initialize and unlock audio element on mount
   useEffect(() => {
     const audio = new Audio();
     audio.crossOrigin = "anonymous";
     audioRef.current = audio;
 
+    // Safely unlock audio using a silent snippet (never replay audioRef.current!)
     const unlockAudio = () => {
-      if (audioRef.current) {
-        audioRef.current.play().catch(() => {});
-      }
+      try {
+        const silentAudio = new Audio(
+          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+        );
+        silentAudio.volume = 0.01;
+        silentAudio.play().catch(() => {});
+      } catch {}
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
     };
@@ -44,13 +65,43 @@ function ChatOverlayContent() {
     return () => {
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
+      stopAudio();
     };
   }, []);
+
+  const fallbackSpeech = (text: string, onEnded?: () => void) => {
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
+      setIsSpeaking(false);
+      onEnded?.();
+      return;
+    }
+    try {
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = "id-ID";
+      utterance.rate = 1.0;
+      utterance.onend = () => {
+        setIsSpeaking(false);
+        onEnded?.();
+      };
+      utterance.onerror = () => {
+        setIsSpeaking(false);
+        onEnded?.();
+      };
+      window.speechSynthesis.speak(utterance);
+    } catch (synthErr) {
+      console.error("SpeechSynthesis error:", synthErr);
+      setIsSpeaking(false);
+      onEnded?.();
+    }
+  };
 
   // Text-to-Speech playback helper
   const playTTS = (text: string, onEnded?: () => void) => {
     if (!text || typeof window === "undefined") return;
 
+    // Stop any ongoing audio before starting new playback
+    stopAudio();
     setIsSpeaking(true);
 
     try {
@@ -59,54 +110,33 @@ function ChatOverlayContent() {
       let audio = audioRef.current;
       if (!audio) {
         audio = new Audio();
+        audio.crossOrigin = "anonymous";
         audioRef.current = audio;
       }
 
-      audio.pause();
       audio.src = audioUrl;
       audio.volume = 1.0;
-      audio.load();
 
       audio.onended = () => {
         setIsSpeaking(false);
         onEnded?.();
       };
 
+      audio.onerror = () => {
+        console.warn("Audio element error, falling back to Web Speech API");
+        fallbackSpeech(text, onEnded);
+      };
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
           console.warn("Audio play failed, falling back to Web Speech API:", err);
-
-          if ("speechSynthesis" in window) {
-            try {
-              window.speechSynthesis.cancel();
-              const utterance = new SpeechSynthesisUtterance(text);
-              utterance.lang = "id-ID";
-              utterance.rate = 1.0;
-              utterance.onend = () => {
-                setIsSpeaking(false);
-                onEnded?.();
-              };
-              utterance.onerror = () => {
-                setIsSpeaking(false);
-                onEnded?.();
-              };
-              window.speechSynthesis.speak(utterance);
-            } catch (synthErr) {
-              console.error("SpeechSynthesis error:", synthErr);
-              setIsSpeaking(false);
-              onEnded?.();
-            }
-          } else {
-            setIsSpeaking(false);
-            onEnded?.();
-          }
+          fallbackSpeech(text, onEnded);
         });
       }
     } catch (e) {
       console.error("TTS playback error:", e);
-      setIsSpeaking(false);
-      onEnded?.();
+      fallbackSpeech(text, onEnded);
     }
   };
 
@@ -125,7 +155,11 @@ function ChatOverlayContent() {
 
     channel.bind("interactive-chat", (data: InteractiveChatMessage) => {
       console.log("Chat overlay received message:", data);
-      setQueue((prev) => [...prev, data]);
+      if (!data || !data.id) return;
+      setQueue((prev) => {
+        if (prev.some((item) => item.id === data.id)) return prev;
+        return [...prev, data];
+      });
     });
 
     return () => {
@@ -173,6 +207,7 @@ function ChatOverlayContent() {
       if (dismissTimeoutRef.current) {
         clearTimeout(dismissTimeoutRef.current);
       }
+      stopAudio();
     };
   }, [currentChat]);
 

@@ -57,17 +57,15 @@ export default function OverlayPage() {
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processedOrderIdsRef = useRef<Set<string>>(new Set());
 
-  // Helper to cleanly stop any ongoing speech/audio
+  // Helper to cleanly stop any ongoing speech/audio (does NOT cancel the alert dismiss timer)
   const stopAudio = () => {
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = null;
-    }
     if (currentAudioRef.current) {
       currentAudioRef.current.onended = null;
       currentAudioRef.current.onerror = null;
-      currentAudioRef.current.pause();
-      currentAudioRef.current.src = "";
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+      } catch {}
       currentAudioRef.current = null;
     }
     // Aggressively flush Chrome background speech synthesis queue

@@ -25,18 +25,16 @@ function ChatOverlayContent() {
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processedChatIdsRef = useRef<Set<string>>(new Set());
 
-  // Helper to cleanly stop any ongoing speech/audio
+  // Helper to cleanly stop any ongoing speech/audio (does NOT clear the alert lifecycle timer)
   const stopAudio = () => {
     setIsSpeaking(false);
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = null;
-    }
     if (currentAudioRef.current) {
       currentAudioRef.current.onended = null;
       currentAudioRef.current.onerror = null;
-      currentAudioRef.current.pause();
-      currentAudioRef.current.src = "";
+      try {
+        currentAudioRef.current.pause();
+        currentAudioRef.current.src = "";
+      } catch {}
       currentAudioRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -88,6 +86,14 @@ function ChatOverlayContent() {
     stopAudio();
     setIsSpeaking(true);
 
+    let endedCalled = false;
+    const triggerEnd = () => {
+      if (endedCalled) return;
+      endedCalled = true;
+      setIsSpeaking(false);
+      onEnded?.();
+    };
+
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
       const audio = new Audio(audioUrl);
@@ -96,14 +102,12 @@ function ChatOverlayContent() {
       currentAudioRef.current = audio;
 
       audio.onended = () => {
-        setIsSpeaking(false);
-        onEnded?.();
+        triggerEnd();
       };
 
       audio.onerror = (e) => {
         console.warn("TTS audio failed to load:", e);
-        setIsSpeaking(false);
-        onEnded?.();
+        triggerEnd();
       };
 
       const playPromise = audio.play();
@@ -114,14 +118,12 @@ function ChatOverlayContent() {
             return;
           }
           console.warn("Audio play blocked by browser policy:", err);
-          setIsSpeaking(false);
-          onEnded?.();
+          triggerEnd();
         });
       }
     } catch (e) {
       console.error("TTS playback error:", e);
-      setIsSpeaking(false);
-      onEnded?.();
+      triggerEnd();
     }
   };
 
@@ -172,28 +174,36 @@ function ChatOverlayContent() {
 
     if (dismissTimeoutRef.current) {
       clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
     }
 
-    // Prepare speech text: "Sender mengatakan: Message"
-    const speechText = `${currentChat.sender} mengatakan: ${currentChat.message}`;
+    // Speak chat message directly without "Streamer mengatakan" prefix
+    const speechText = currentChat.message;
 
-    // Safety timeout: 15 seconds max in case of network stall
+    // Guaranteed fallback timer (proportional to message length, max 10s)
+    // Ensures popup ALWAYS auto-closes even if audio is blocked or interrupted
+    const fallbackTimeout = Math.min(10000, Math.max(4500, speechText.length * 120));
     dismissTimeoutRef.current = setTimeout(() => {
       setCurrentChat(null);
       setIsSpeaking(false);
-    }, 15000);
+    }, fallbackTimeout);
 
-    // Speak and hold message on screen for 2.5s after audio finishes
+    // Speak and hold message on screen briefly after audio finishes
     playTTS(speechText, () => {
-      if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+      if (dismissTimeoutRef.current) {
+        clearTimeout(dismissTimeoutRef.current);
+      }
+      // If there are more chats in queue, transition quicker (1s) so it doesn't backlog, otherwise 2.2s
+      const delay = queue.length > 0 ? 1000 : 2200;
       dismissTimeoutRef.current = setTimeout(() => {
         setCurrentChat(null);
-      }, 2500);
+      }, delay);
     });
 
     return () => {
       if (dismissTimeoutRef.current) {
         clearTimeout(dismissTimeoutRef.current);
+        dismissTimeoutRef.current = null;
       }
       stopAudio();
     };
@@ -219,9 +229,13 @@ function ChatOverlayContent() {
       className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none ${getPositionClasses()}`}
     >
       {currentChat && (
-        <div className="animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-lg w-full">
+        <div
+          onClick={() => setCurrentChat(null)}
+          title="Klik untuk menutup"
+          className="animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-lg w-full pointer-events-auto cursor-pointer"
+        >
           {/* Streamer Speech Card */}
-          <div className="bg-black/80 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2">
+          <div className="bg-black/80 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 transition hover:border-yellow-300">
             {/* Header: Badge, Sender Name, & Audio Wave Animation */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">

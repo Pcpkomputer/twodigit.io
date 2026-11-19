@@ -50,19 +50,27 @@ function YouTubeMedia({ videoId }: { videoId: string }) {
 export default function OverlayPage() {
   const [currentAlert, setCurrentAlert] = useState<DonationAlert | null>(null);
   const [queue, setQueue] = useState<DonationAlert[]>([]);
+  const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
   // Dedicated Audio Element ref & dismiss timer
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const processedOrderIdsRef = useRef<Set<string>>(new Set());
 
   // Helper to cleanly stop any ongoing speech/audio
   const stopAudio = () => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
+    if (dismissTimeoutRef.current) {
+      clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
     }
+    if (currentAudioRef.current) {
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
+    }
+    // Aggressively flush Chrome background speech synthesis queue
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -72,11 +80,14 @@ export default function OverlayPage() {
 
   // Initialize and unlock audio element on mount
   useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audioRef.current = audio;
+    // Permanently cancel any lingering speech synthesis left in the browser
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
 
-    // Safely unlock audio using a silent snippet (NEVER replay audioRef.current with previous sound!)
+    // Safely unlock audio using a silent snippet (NEVER replay previous audio!)
     const unlockAudio = () => {
       try {
         const silentAudio = new Audio(
@@ -85,6 +96,7 @@ export default function OverlayPage() {
         silentAudio.volume = 0.01;
         silentAudio.play().catch(() => {});
       } catch {}
+      setAudioUnlocked(true);
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
     };
@@ -99,68 +111,47 @@ export default function OverlayPage() {
     };
   }, []);
 
-  const fallbackSpeech = (text: string, onEnded?: () => void) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      onEnded?.();
+  const playAlertAudio = (text: string, onEnded: () => void) => {
+    if (!text || typeof window === "undefined") {
+      onEnded();
       return;
     }
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "id-ID";
-      utterance.rate = 1.0;
-      utterance.onend = () => {
-        onEnded?.();
-      };
-      utterance.onerror = () => {
-        onEnded?.();
-      };
-      window.speechSynthesis.speak(utterance);
-    } catch (synthErr) {
-      console.error("SpeechSynthesis fallback failed:", synthErr);
-      onEnded?.();
-    }
-  };
 
-  const playTTS = (text: string, onEnded?: () => void) => {
-    if (!text || typeof window === "undefined") return;
-
-    // Immediately stop any ongoing audio to prevent overlapping speech
+    // Stop any existing playback first
     stopAudio();
 
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
-
-      let audio = audioRef.current;
-      if (!audio) {
-        audio = new Audio();
-        audio.crossOrigin = "anonymous";
-        audioRef.current = audio;
-      }
-
-      audio.src = audioUrl;
+      const audio = new Audio(audioUrl);
+      audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
+      currentAudioRef.current = audio;
 
-      // Hook onended callback so visual card stays until audio finishes!
       audio.onended = () => {
-        onEnded?.();
+        onEnded();
       };
 
-      audio.onerror = () => {
-        console.warn("Audio element error, falling back to Web Speech API");
-        fallbackSpeech(text, onEnded);
+      audio.onerror = (e) => {
+        console.warn("TTS audio failed to load:", e);
+        onEnded();
       };
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn("Audio element play failed, falling back to Web Speech API:", err);
-          fallbackSpeech(text, onEnded);
+          if (err.name === "AbortError") {
+            // Intentionally stopped/aborted; ignore
+            return;
+          }
+          console.warn("Audio play blocked by browser policy:", err);
+          setAudioUnlocked(false);
+          // Still dismiss cleanly so queue does not freeze
+          onEnded();
         });
       }
     } catch (e) {
-      console.error("TTS error:", e);
-      fallbackSpeech(text, onEnded);
+      console.error("TTS playback error:", e);
+      onEnded();
     }
   };
 
@@ -184,13 +175,14 @@ export default function OverlayPage() {
       console.log("Overlay received donation:", data);
       if (!data || !data.orderId) return;
 
-      setQueue((prev) => {
-        // Prevent duplicate alerts in queue
-        if (prev.some((item) => item.orderId === data.orderId)) {
-          return prev;
-        }
-        return [...prev, data];
-      });
+      // Deduplicate using session ref so identical orderId NEVER gets queued twice
+      if (processedOrderIdsRef.current.has(data.orderId)) {
+        console.warn("Ignored duplicate donation alert:", data.orderId);
+        return;
+      }
+      processedOrderIdsRef.current.add(data.orderId);
+
+      setQueue((prev) => [...prev, data]);
     });
 
     return () => {
@@ -223,19 +215,19 @@ export default function OverlayPage() {
       currentAlert.message ? currentAlert.message : ""
     }`;
 
-    // Safety fallback timer (18s max) in case of any network timeout
+    // Safety fallback timer (18s max for video, 15s for audio)
     const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
     dismissTimeoutRef.current = setTimeout(() => {
       setCurrentAlert(null);
     }, safetyTimeout);
 
-    // Play TTS and dismiss smoothly 2.5s after audio ends
-    playTTS(speechText, () => {
+    // Play TTS and dismiss smoothly 2s after audio ends
+    playAlertAudio(speechText, () => {
       if (!currentAlert.mediaUrl) {
         if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
         dismissTimeoutRef.current = setTimeout(() => {
           setCurrentAlert(null);
-        }, 2500);
+        }, 2000);
       }
     });
 
@@ -251,6 +243,22 @@ export default function OverlayPage() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex flex-col items-center justify-center p-8 select-none font-sans pointer-events-none">
+      {!audioUnlocked && (
+        <div
+          onClick={() => {
+            const silent = new Audio(
+              "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+            );
+            silent.volume = 0.01;
+            silent.play().catch(() => {});
+            setAudioUnlocked(true);
+          }}
+          className="fixed top-4 bg-black/85 text-yellow-300 text-xs font-bold px-4 py-2 rounded-full border border-yellow-400 pointer-events-auto cursor-pointer animate-pulse z-50 shadow-lg flex items-center gap-1.5"
+        >
+          <span>🔊</span> Klik layar untuk mengaktifkan suara audio
+        </div>
+      )}
+
       {currentAlert && (
         <div className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible">
           {/* Saweria Style Floating Alert: Clean vector stroke, no clipped box */}

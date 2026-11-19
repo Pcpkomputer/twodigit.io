@@ -21,17 +21,23 @@ function ChatOverlayContent() {
   const [queue, setQueue] = useState<InteractiveChatMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
 
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const processedChatIdsRef = useRef<Set<string>>(new Set());
 
   // Helper to cleanly stop any ongoing speech/audio
   const stopAudio = () => {
     setIsSpeaking(false);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current.onended = null;
-      audioRef.current.onerror = null;
+    if (dismissTimeoutRef.current) {
+      clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
+    }
+    if (currentAudioRef.current) {
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
@@ -42,11 +48,13 @@ function ChatOverlayContent() {
 
   // Initialize and unlock audio element on mount
   useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audioRef.current = audio;
+    // Permanently cancel any lingering speech synthesis left in the browser
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
 
-    // Safely unlock audio using a silent snippet (never replay audioRef.current!)
     const unlockAudio = () => {
       try {
         const silentAudio = new Audio(
@@ -69,36 +77,12 @@ function ChatOverlayContent() {
     };
   }, []);
 
-  const fallbackSpeech = (text: string, onEnded?: () => void) => {
-    if (typeof window === "undefined" || !("speechSynthesis" in window)) {
-      setIsSpeaking(false);
+  // Text-to-Speech playback helper
+  const playTTS = (text: string, onEnded?: () => void) => {
+    if (!text || typeof window === "undefined") {
       onEnded?.();
       return;
     }
-    try {
-      window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = "id-ID";
-      utterance.rate = 1.0;
-      utterance.onend = () => {
-        setIsSpeaking(false);
-        onEnded?.();
-      };
-      utterance.onerror = () => {
-        setIsSpeaking(false);
-        onEnded?.();
-      };
-      window.speechSynthesis.speak(utterance);
-    } catch (synthErr) {
-      console.error("SpeechSynthesis error:", synthErr);
-      setIsSpeaking(false);
-      onEnded?.();
-    }
-  };
-
-  // Text-to-Speech playback helper
-  const playTTS = (text: string, onEnded?: () => void) => {
-    if (!text || typeof window === "undefined") return;
 
     // Stop any ongoing audio before starting new playback
     stopAudio();
@@ -106,37 +90,38 @@ function ChatOverlayContent() {
 
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
-
-      let audio = audioRef.current;
-      if (!audio) {
-        audio = new Audio();
-        audio.crossOrigin = "anonymous";
-        audioRef.current = audio;
-      }
-
-      audio.src = audioUrl;
+      const audio = new Audio(audioUrl);
+      audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
+      currentAudioRef.current = audio;
 
       audio.onended = () => {
         setIsSpeaking(false);
         onEnded?.();
       };
 
-      audio.onerror = () => {
-        console.warn("Audio element error, falling back to Web Speech API");
-        fallbackSpeech(text, onEnded);
+      audio.onerror = (e) => {
+        console.warn("TTS audio failed to load:", e);
+        setIsSpeaking(false);
+        onEnded?.();
       };
 
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          console.warn("Audio play failed, falling back to Web Speech API:", err);
-          fallbackSpeech(text, onEnded);
+          if (err.name === "AbortError") {
+            // Intentionally aborted; ignore
+            return;
+          }
+          console.warn("Audio play blocked by browser policy:", err);
+          setIsSpeaking(false);
+          onEnded?.();
         });
       }
     } catch (e) {
       console.error("TTS playback error:", e);
-      fallbackSpeech(text, onEnded);
+      setIsSpeaking(false);
+      onEnded?.();
     }
   };
 
@@ -156,10 +141,13 @@ function ChatOverlayContent() {
     channel.bind("interactive-chat", (data: InteractiveChatMessage) => {
       console.log("Chat overlay received message:", data);
       if (!data || !data.id) return;
-      setQueue((prev) => {
-        if (prev.some((item) => item.id === data.id)) return prev;
-        return [...prev, data];
-      });
+
+      if (processedChatIdsRef.current.has(data.id)) {
+        return;
+      }
+      processedChatIdsRef.current.add(data.id);
+
+      setQueue((prev) => [...prev, data]);
     });
 
     return () => {

@@ -156,26 +156,36 @@ function PollOverlayContent() {
       <div className="w-full max-w-md animate-in fade-in duration-300 flex flex-col gap-3">
         {/* Main Poll Card */}
         <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-3.5 backdrop-blur-none">
-          {/* Header Title & Status */}
-          <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-2.5">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-2xl shrink-0">📊</span>
-              <h2 className="saweria-text-yellow text-lg md:text-xl uppercase font-black truncate">
-                {poll.title}
-              </h2>
-            </div>
-            <div className="shrink-0 text-right">
-              {isEnded ? (
-                <span className="px-2 py-0.5 rounded-md bg-red-500/20 border border-red-500/40 text-red-300 text-[11px] font-black uppercase">
-                  Selesai
+          {/* Header: Status Badge & Total Votes on top, Full-Width Title below */}
+          <div className="border-b border-white/10 pb-3 flex flex-col gap-2">
+            {/* Top Meta: Badge & Counter */}
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="text-xl shrink-0">📊</span>
+                {isEnded ? (
+                  <span className="px-2.5 py-0.5 rounded-md bg-red-500/25 border border-red-500/50 text-red-300 text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                    Voting Selesai
+                  </span>
+                ) : (
+                  <span className="px-2.5 py-0.5 rounded-md bg-green-500/25 border border-green-400/50 text-green-300 text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                    Live Vote
+                  </span>
+                )}
+              </div>
+
+              <div className="text-right">
+                <span className="text-xs font-bold text-gray-300/90 bg-white/10 px-2 py-0.5 rounded-md border border-white/10">
+                  {poll.totalVotes} suara
                 </span>
-              ) : (
-                <span className="px-2 py-0.5 rounded-md bg-green-500/20 border border-green-500/40 text-green-300 text-[11px] font-black uppercase flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></span>
-                  Live Vote
-                </span>
-              )}
+              </div>
             </div>
+
+            {/* Title (Full width, no truncation overlap) */}
+            <h2 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-snug break-words">
+              {poll.title}
+            </h2>
           </div>
 
           {/* Options List */}
@@ -190,7 +200,7 @@ function PollOverlayContent() {
                   <div className="flex items-center justify-between text-xs md:text-sm font-black">
                     <div className="flex items-center gap-2 min-w-0">
                       <span
-                        className={`px-2 py-0.5 rounded-md border font-black text-xs ${color.badge}`}
+                        className={`px-2 py-0.5 rounded-md border font-black text-xs shrink-0 ${color.badge}`}
                       >
                         !{opt.index}
                       </span>
@@ -223,12 +233,18 @@ function PollOverlayContent() {
           </div>
 
           {/* Footer Callout */}
-          <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[11px]">
-            <span className="text-yellow-300/90 font-bold flex items-center gap-1">
-              <span>💬</span> Ketik <span className="underline font-black">!1</span> atau{" "}
-              <span className="underline font-black">!2</span> di live chat!
+          <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
+            <span className="text-yellow-300 font-bold flex items-center gap-1.5">
+              <span className="text-sm">💬</span> Ketik <span className="px-1.5 py-0.5 rounded bg-yellow-400 text-black font-black text-[11px]">!1</span> atau{" "}
+              <span className="px-1.5 py-0.5 rounded bg-yellow-400 text-black font-black text-[11px]">!2</span> di live chat!
             </span>
-            <span className="text-gray-400 font-semibold">{poll.totalVotes} total suara</span>
+            {isEnded && poll.winner ? (
+              <span className="text-green-300 font-black text-[11px] flex items-center gap-1 shrink-0">
+                <span>👑</span> {poll.winner.label}
+              </span>
+            ) : (
+              <span className="text-gray-400 font-semibold text-[11px]">TikTok Live</span>
+            )}
           </div>
         </div>
       </div>

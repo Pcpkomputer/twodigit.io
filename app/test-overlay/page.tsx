@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
+import Pusher from "pusher-js";
 
 interface TestHistoryItem {
   id: string;
@@ -21,9 +22,27 @@ interface ChatHistoryItem {
   timestamp: string;
 }
 
+interface PollOption {
+  index: number;
+  label: string;
+  votes: number;
+  percentage: number;
+}
+
+interface PollState {
+  id: string;
+  title: string;
+  options: PollOption[];
+  totalVotes: number;
+  status: "active" | "ended";
+  createdAt: string;
+  endedAt?: string;
+  winner?: PollOption | null;
+}
+
 export default function TestOverlayPage() {
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<"donation" | "chat">("chat");
+  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "donation">("poll");
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -47,6 +66,14 @@ export default function TestOverlayPage() {
   const [chatMessage, setChatMessage] = useState<string>("");
   const [chatPosition, setChatPosition] = useState<string>("bottom-left");
   const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
+
+  // Poll state
+  const [poll, setPoll] = useState<PollState | null>(null);
+  const [pollTitle, setPollTitle] = useState<string>("Hero Apa di Game Berikutnya?");
+  const [pollOptions, setPollOptions] = useState<string[]>(["Layla", "Miya"]);
+  const [pollPosition, setPollPosition] = useState<string>("bottom-left");
+  const [isCreatingPoll, setIsCreatingPoll] = useState<boolean>(false);
+  const [isActingOnPoll, setIsActingOnPoll] = useState<boolean>(false);
 
   // History state
   const [history, setHistory] = useState<TestHistoryItem[]>([]);
@@ -72,6 +99,51 @@ export default function TestOverlayPage() {
       setIsCheckingAuth(false);
     }
   };
+
+  // Fetch active poll when authenticated
+  const fetchActivePoll = async () => {
+    try {
+      const res = await fetch("/api/poll/active");
+      if (res.ok) {
+        const data = await res.json();
+        setPoll(data.active ? data.poll : null);
+      }
+    } catch (e) {
+      console.error("Failed to fetch poll:", e);
+    }
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchActivePoll();
+
+      // Realtime Pusher subscription for live poll updates
+      const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY || "";
+      const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap1";
+      if (!pusherKey) return;
+
+      const pusher = new Pusher(pusherKey, { cluster });
+      const channel = pusher.subscribe("donation-stream");
+
+      channel.bind("poll-update", (data: PollState) => {
+        setPoll(data);
+      });
+
+      channel.bind("poll-ended", (data: PollState) => {
+        setPoll(data);
+      });
+
+      channel.bind("poll-reset", () => {
+        setPoll(null);
+      });
+
+      return () => {
+        channel.unbind_all();
+        channel.unsubscribe();
+        pusher.disconnect();
+      };
+    }
+  }, [isAuthenticated]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,6 +303,128 @@ export default function TestOverlayPage() {
     }
   };
 
+  // Poll Management Handlers
+  const handleAddPollOption = () => {
+    if (pollOptions.length >= 5) {
+      toast.warning("Maksimal 5 opsi pilihan voting.");
+      return;
+    }
+    setPollOptions([...pollOptions, `Opsi ${pollOptions.length + 1}`]);
+  };
+
+  const handleRemovePollOption = (idx: number) => {
+    if (pollOptions.length <= 2) {
+      toast.warning("Minimal 2 opsi pilihan voting.");
+      return;
+    }
+    setPollOptions(pollOptions.filter((_, i) => i !== idx));
+  };
+
+  const handlePollOptionChange = (idx: number, val: string) => {
+    const clone = [...pollOptions];
+    clone[idx] = val;
+    setPollOptions(clone);
+  };
+
+  const handleStartPoll = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanTitle = pollTitle.trim();
+    if (!cleanTitle) {
+      toast.warning("Judul voting tidak boleh kosong.");
+      return;
+    }
+
+    const cleanOptions = pollOptions.map((o) => o.trim()).filter(Boolean);
+    if (cleanOptions.length < 2) {
+      toast.warning("Minimal 2 opsi pilihan harus diisi.");
+      return;
+    }
+
+    setIsCreatingPoll(true);
+    try {
+      const res = await fetch("/api/poll/create", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: cleanTitle, options: cleanOptions }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPoll(data.poll);
+        toast.success("Voting live berhasil dimulai di overlay!");
+      } else {
+        toast.error(data.error || "Gagal membuat voting.");
+      }
+    } catch {
+      toast.error("Gagal terhubung ke server untuk membuat voting.");
+    } finally {
+      setIsCreatingPoll(false);
+    }
+  };
+
+  const handleSimulateVote = async (optionIndex: number) => {
+    setIsActingOnPoll(true);
+    try {
+      const res = await fetch("/api/poll/vote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          optionIndex,
+          userId: `sim-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+          nickname: "Simulated Tester",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPoll(data.poll);
+        toast.success(`+1 Vote terkirim untuk Opsi [!${optionIndex}]!`);
+      } else {
+        toast.error(data.error || "Gagal mengirim vote simulasi.");
+      }
+    } catch {
+      toast.error("Gagal mengirim vote.");
+    } finally {
+      setIsActingOnPoll(false);
+    }
+  };
+
+  const handleEndPoll = async () => {
+    setIsActingOnPoll(true);
+    try {
+      const res = await fetch("/api/poll/end", { method: "POST" });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setPoll(data.poll);
+        toast.success("Voting selesai! Pemenang telah ditentukan.");
+      } else {
+        toast.error(data.error || "Gagal mengakhiri voting.");
+      }
+    } catch {
+      toast.error("Gagal mengakhiri voting.");
+    } finally {
+      setIsActingOnPoll(false);
+    }
+  };
+
+  const handleResetPoll = async () => {
+    if (!confirm("Apakah Anda yakin ingin mereset voting? Layar voting di overlay akan ditutup.")) {
+      return;
+    }
+    setIsActingOnPoll(true);
+    try {
+      const res = await fetch("/api/poll/end?action=reset", { method: "POST" });
+      if (res.ok) {
+        setPoll(null);
+        toast.info("Voting di-reset. Anda dapat membuat voting baru.");
+      }
+    } catch {
+      toast.error("Gagal mereset voting.");
+    } finally {
+      setIsActingOnPoll(false);
+    }
+  };
+
   const copyToClipboard = (urlPath: string, label: string) => {
     const fullUrl = `${window.location.origin}${urlPath}`;
     navigator.clipboard.writeText(fullUrl);
@@ -260,7 +454,7 @@ export default function TestOverlayPage() {
             </div>
             <h1 className="text-xl font-bold text-gray-900">Admin Overlay Console</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Masukkan password untuk mengelola test donasi dan interaksi chat TTS di livestreaming.
+              Masukkan password untuk mengelola live voting, chat TTS, dan donasi alert.
             </p>
           </div>
 
@@ -331,11 +525,11 @@ export default function TestOverlayPage() {
         <div className="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-primary/10 text-primary rounded-xl flex items-center justify-center font-bold text-lg">
-              💬
+              ⚡
             </div>
             <div>
               <h1 className="font-bold text-gray-900 leading-tight">Streamer Live Console</h1>
-              <p className="text-[11px] text-gray-500 font-medium">Interactive Chat TTS & Test Overlay</p>
+              <p className="text-[11px] text-gray-500 font-medium">Live Voting, Chat TTS & Test Overlay</p>
             </div>
           </div>
 
@@ -358,22 +552,34 @@ export default function TestOverlayPage() {
       {/* Main Container */}
       <main className="max-w-6xl mx-auto px-4 py-6">
         {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-3">
+        <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-3 overflow-x-auto">
+          <button
+            onClick={() => setActiveTab("poll")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
+              activeTab === "poll"
+                ? "bg-primary text-white shadow-sm"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">poll</span>
+            <span>📊 Live Voting (TikTok Poll)</span>
+          </button>
+
           <button
             onClick={() => setActiveTab("chat")}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
               activeTab === "chat"
                 ? "bg-primary text-white shadow-sm"
                 : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
             }`}
           >
             <span className="material-symbols-outlined text-[20px]">record_voice_over</span>
-            <span>💬 Interactive Chat & TTS (Live)</span>
+            <span>💬 Interactive Chat & TTS</span>
           </button>
 
           <button
             onClick={() => setActiveTab("donation")}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition ${
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
               activeTab === "donation"
                 ? "bg-primary text-white shadow-sm"
                 : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
@@ -393,20 +599,57 @@ export default function TestOverlayPage() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+            {/* Live Voting Card */}
+            <div
+              className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
+                activeTab === "poll" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-xs text-gray-900 flex items-center gap-1">
+                    <span>📊 Live Voting</span>
+                    <span className="text-[10px] bg-yellow-400 text-black px-1.5 py-0.2 rounded font-black">
+                      POLL
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">Live vote via komentar !1 / !2</p>
+                </div>
+                <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-1.5 py-0.5 rounded">
+                  /overlay/poll
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-200/60">
+                <a
+                  href={`/overlay/poll?pos=${pollPosition}&preview=1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 text-center py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 transition"
+                >
+                  Preview ↗
+                </a>
+                <button
+                  onClick={() => copyToClipboard(`/overlay/poll?pos=${pollPosition}`, "Live Voting")}
+                  className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
+                >
+                  Salin
+                </button>
+              </div>
+            </div>
+
             {/* Interactive Chat Overlay Card */}
-            <div className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
-              activeTab === "chat" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
-            }`}>
+            <div
+              className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
+                activeTab === "chat" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
+              }`}
+            >
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-bold text-xs text-gray-900 flex items-center gap-1">
                     <span>💬 Chat & TTS</span>
-                    <span className="text-[10px] bg-yellow-400 text-black px-1.5 py-0.2 rounded font-black">
-                      NEW
-                    </span>
                   </h3>
-                  <p className="text-[11px] text-gray-500">Bubble chat streamer + suara TTS</p>
+                  <p className="text-[11px] text-gray-500">Bubble chat streamer + TTS</p>
                 </div>
                 <span className="text-[10px] bg-yellow-100 text-yellow-800 font-bold px-1.5 py-0.5 rounded">
                   /overlay/chat
@@ -422,7 +665,7 @@ export default function TestOverlayPage() {
                   Preview ↗
                 </a>
                 <button
-                  onClick={() => copyToClipboard(`/overlay/chat?pos=${chatPosition}`, "Chat TTS Overlay")}
+                  onClick={() => copyToClipboard(`/overlay/chat?pos=${chatPosition}`, "Chat TTS")}
                   className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
                 >
                   Salin
@@ -464,7 +707,7 @@ export default function TestOverlayPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-bold text-xs text-gray-900">🏆 Top Donatur</h3>
-                  <p className="text-[11px] text-gray-500">Leaderboard ranking donatur</p>
+                  <p className="text-[11px] text-gray-500">Leaderboard donasi</p>
                 </div>
                 <span className="text-[10px] bg-amber-50 text-amber-700 font-bold px-1.5 py-0.5 rounded">
                   /top-donors
@@ -493,7 +736,7 @@ export default function TestOverlayPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="font-bold text-xs text-gray-900">🎯 Milestone Target</h3>
-                  <p className="text-[11px] text-gray-500">Progress bar target donasi</p>
+                  <p className="text-[11px] text-gray-500">Progress bar donasi</p>
                 </div>
                 <span className="text-[10px] bg-green-50 text-green-700 font-bold px-1.5 py-0.5 rounded">
                   /milestone
@@ -519,7 +762,287 @@ export default function TestOverlayPage() {
           </div>
         </section>
 
-        {/* TAB 1: INTERACTIVE CHAT & TTS (LIVE) */}
+        {/* TAB 1: LIVE VOTING (TIKTOK POLL) */}
+        {activeTab === "poll" && (
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Poll Creator or Live Poll Dashboard */}
+              <div className="lg:col-span-7 flex flex-col gap-6">
+                {poll ? (
+                  /* Active Poll Dashboard */
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                    <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-4 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="px-2 py-0.5 rounded-md text-[11px] font-black uppercase tracking-wider bg-blue-100 text-blue-700">
+                            {poll.status === "active" ? "Live Voting Berlangsung" : "Voting Selesai"}
+                          </span>
+                          <span className="text-xs text-gray-400">Total: {poll.totalVotes} suara</span>
+                        </div>
+                        <h2 className="text-lg font-bold text-gray-900">{poll.title}</h2>
+                      </div>
+
+                      <div className="flex items-center gap-1.5">
+                        {poll.status === "active" ? (
+                          <button
+                            onClick={handleEndPoll}
+                            disabled={isActingOnPoll}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-sm transition disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">flag</span>
+                            Selesaikan Voting
+                          </button>
+                        ) : (
+                          <button
+                            onClick={handleResetPoll}
+                            disabled={isActingOnPoll}
+                            className="px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-black text-white font-bold text-xs shadow-sm transition disabled:opacity-50 flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">refresh</span>
+                            Buat Voting Baru
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Live Options & Progress */}
+                    <div className="flex flex-col gap-3 mb-6">
+                      {poll.options.map((opt) => (
+                        <div key={opt.index} className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 flex flex-col gap-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <div className="flex items-center gap-2 font-bold text-gray-900">
+                              <span className="px-2 py-0.5 rounded-lg bg-primary text-white text-xs font-black">
+                                !{opt.index}
+                              </span>
+                              <span>
+                                {poll.status === "ended" && poll.winner?.index === opt.index && "👑 "}
+                                {opt.label}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500 font-semibold">{opt.votes} vote</span>
+                              <span className="text-sm font-black text-primary">{opt.percentage}%</span>
+                            </div>
+                          </div>
+
+                          {/* Progress Track */}
+                          <div className="w-full h-3 bg-gray-200 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-primary rounded-full transition-all duration-500"
+                              style={{ width: `${Math.max(opt.percentage, opt.votes > 0 ? 3 : 0)}%` }}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Interactive Vote Simulators */}
+                    {poll.status === "active" && (
+                      <div className="p-4 rounded-xl bg-blue-50/60 border border-blue-200">
+                        <p className="text-xs font-bold text-blue-900 mb-2 flex items-center gap-1">
+                          <span className="material-symbols-outlined text-[16px]">smart_toy</span>
+                          Simulasi Vote Manual (Uji Coba Animasi Overlay):
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                          {poll.options.map((opt) => (
+                            <button
+                              key={opt.index}
+                              disabled={isActingOnPoll}
+                              onClick={() => handleSimulateVote(opt.index)}
+                              className="px-3 py-1.5 rounded-lg bg-white border border-blue-300 hover:bg-blue-100/50 text-blue-800 text-xs font-bold shadow-xs transition disabled:opacity-50 flex items-center gap-1"
+                            >
+                              <span>+1 Vote</span>
+                              <span className="px-1.5 py-0.2 rounded bg-blue-600 text-white text-[10px]">
+                                !{opt.index}
+                              </span>
+                              <span>{opt.label}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  /* Poll Creator Form */
+                  <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                    <div className="mb-5">
+                      <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary text-[22px]">add_chart</span>
+                        Buat Sesi Live Voting Baru
+                      </h2>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Penonton dapat memilih opsi voting dengan mengetik <strong>!1</strong> atau <strong>!2</strong> di kolom komentar TikTok Live.
+                      </p>
+                    </div>
+
+                    {/* Preset Templates */}
+                    <div className="mb-5">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1.5">
+                        Template Cepat:
+                      </label>
+                      <div className="flex flex-wrap gap-1.5">
+                        {[
+                          { title: "Main Hero Apa di Game Berikutnya?", opts: ["Layla", "Miya", "Alucard"] },
+                          { title: "Lanjut Main Game atau Ngobrol Santai?", opts: ["Lanjut Game", "Ngobrol Santai"] },
+                          { title: "Rekomendasi Menu Makan Malam?", opts: ["Nasi Goreng", "Ayam Geprek", "Mie Instan"] },
+                        ].map((preset, idx) => (
+                          <button
+                            key={idx}
+                            type="button"
+                            onClick={() => {
+                              setPollTitle(preset.title);
+                              setPollOptions(preset.opts);
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 border border-gray-200 transition"
+                          >
+                            {preset.title.slice(0, 32)}...
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <form onSubmit={handleStartPoll} className="flex flex-col gap-4">
+                      {/* Poll Title */}
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Pertanyaan / Judul Voting
+                        </label>
+                        <input
+                          type="text"
+                          value={pollTitle}
+                          onChange={(e) => setPollTitle(e.target.value)}
+                          placeholder="Contoh: Pilih hero game berikutnya..."
+                          className="w-full h-11 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition text-sm font-semibold"
+                        />
+                      </div>
+
+                      {/* Options Input List */}
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <label className="block text-xs font-semibold text-gray-700">
+                            Daftar Pilihan Opsi
+                          </label>
+                          <span className="text-[11px] text-gray-400">Minimal 2, maksimal 5 opsi</span>
+                        </div>
+
+                        <div className="flex flex-col gap-2">
+                          {pollOptions.map((opt, idx) => (
+                            <div key={idx} className="flex items-center gap-2">
+                              <span className="w-10 h-10 shrink-0 bg-primary/10 text-primary font-black text-xs rounded-xl flex items-center justify-center border border-primary/20">
+                                !{idx + 1}
+                              </span>
+                              <input
+                                type="text"
+                                value={opt}
+                                onChange={(e) => handlePollOptionChange(idx, e.target.value)}
+                                placeholder={`Opsi pilihan ${idx + 1}...`}
+                                className="flex-1 h-10 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition text-xs font-semibold"
+                              />
+                              {pollOptions.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemovePollOption(idx)}
+                                  className="w-10 h-10 shrink-0 rounded-xl border border-gray-200 hover:bg-red-50 hover:border-red-200 text-gray-400 hover:text-red-600 transition flex items-center justify-center"
+                                  title="Hapus opsi ini"
+                                >
+                                  <span className="material-symbols-outlined text-[18px]">delete</span>
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+
+                        {pollOptions.length < 5 && (
+                          <button
+                            type="button"
+                            onClick={handleAddPollOption}
+                            className="mt-2 text-xs font-bold text-primary hover:underline flex items-center gap-1"
+                          >
+                            <span className="material-symbols-outlined text-[16px]">add</span>
+                            Tambah Opsi Pilihan
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Position Selector */}
+                      <div className="flex items-center justify-between p-3 rounded-xl bg-gray-50 border border-gray-200 text-xs">
+                        <div className="flex items-center gap-1.5 font-medium text-gray-700">
+                          <span className="material-symbols-outlined text-[18px] text-gray-500">place</span>
+                          <span>Posisi Muncul di Layar:</span>
+                        </div>
+                        <select
+                          value={pollPosition}
+                          onChange={(e) => setPollPosition(e.target.value)}
+                          className="bg-white border border-gray-300 rounded-lg px-2 py-1 text-xs font-semibold outline-none focus:border-primary"
+                        >
+                          <option value="bottom-left">Kiri Bawah (Default)</option>
+                          <option value="bottom-center">Tengah Bawah</option>
+                          <option value="top-left">Kiri Atas</option>
+                          <option value="top-center">Tengah Atas</option>
+                        </select>
+                      </div>
+
+                      {/* Submit */}
+                      <button
+                        type="submit"
+                        disabled={isCreatingPoll}
+                        className="w-full h-12 bg-primary hover:bg-indigo-600 active:scale-[0.99] text-white rounded-xl font-bold transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-md hover:shadow-lg mt-2"
+                      >
+                        {isCreatingPoll ? (
+                          <>
+                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Memulai Voting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[20px]">play_arrow</span>
+                            <span>Mulai Voting Live di Overlay</span>
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column: Setup Guide & TikTok Listener Helper */}
+              <div className="lg:col-span-5 flex flex-col gap-6">
+                <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-2xl border border-blue-200 p-5 text-xs text-blue-950">
+                  <h4 className="font-bold mb-2 flex items-center gap-1.5 text-blue-900 text-sm">
+                    <span className="material-symbols-outlined text-[18px]">sensors</span>
+                    Menghubungkan Komentar TikTok Live
+                  </h4>
+                  <p className="text-blue-900 leading-relaxed mb-3">
+                    Gunakan script local <strong>tiktok-listener</strong> untuk menangkap komentar penonton secara otomatis dan mengirimkannya ke sistem voting:
+                  </p>
+                  <ol className="space-y-2 list-decimal list-inside text-blue-900 font-medium">
+                    <li>
+                      Buka terminal di folder <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[11px]">twodigit.io/tiktok-listener</code>.
+                    </li>
+                    <li>
+                      Jalankan <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[11px]">npm install</code> lalu <code className="bg-blue-100 px-1 py-0.5 rounded font-mono text-[11px]">npm start</code>.
+                    </li>
+                    <li>
+                      Saat penonton berkomentar <code className="bg-blue-200 px-1 rounded font-bold">!1</code> atau <code className="bg-blue-200 px-1 rounded font-bold">!2</code>, progress bar akan bertambah secara real-time!
+                    </li>
+                  </ol>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-xs text-gray-700">
+                  <h4 className="font-bold mb-2 flex items-center gap-1.5 text-gray-900 text-sm">
+                    <span className="material-symbols-outlined text-[18px]">verified</span>
+                    Fitur Anti-Spam (1 Akun = 1 Vote)
+                  </h4>
+                  <p className="text-gray-600 leading-relaxed">
+                    Sistem secara otomatis mengenali ID unik akun TikTok penonton. Jika penonton yang sama berkomentar <code className="bg-gray-100 px-1 rounded font-bold">!1</code> berkali-kali, hanya vote pertama yang dihitung untuk menjaga keadilan hasil voting.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 2: INTERACTIVE CHAT & TTS (LIVE) */}
         {activeTab === "chat" && (
           <div className="flex flex-col gap-6">
             {/* Quick 1-Click Streamer Shouts */}
@@ -595,7 +1118,7 @@ export default function TestOverlayPage() {
                         Tulis Pesan untuk Overlay & TTS
                       </h2>
                       <p className="text-xs text-gray-500">
-                        Ketik teks apa pun, pesan akan muncul di layar streaming dan disuarakan oleh TTS.
+                        Ketik teks apa pun, pesan akan muncul di layar streaming dan disuarakan oleh TTS langsung tanpa prefix.
                       </p>
                     </div>
                   </div>
@@ -649,7 +1172,7 @@ export default function TestOverlayPage() {
                     <div>
                       <div className="flex items-center justify-between mb-1">
                         <label className="block text-xs font-semibold text-gray-700">
-                          Pesan Chat (Akan disuarakan & ditampilkan)
+                          Pesan Chat (Disuarakan langsung oleh TTS)
                         </label>
                         <span className="text-[11px] text-gray-400">Tekan Enter atau klik Kirim</span>
                       </div>
@@ -776,37 +1299,12 @@ export default function TestOverlayPage() {
                     </div>
                   )}
                 </div>
-
-                {/* Quick Setup Card */}
-                <div className="bg-gradient-to-br from-yellow-50 to-amber-50 rounded-2xl border border-yellow-200 p-5 text-xs text-amber-950">
-                  <h4 className="font-bold mb-2 flex items-center gap-1.5 text-amber-900 text-sm">
-                    <span className="material-symbols-outlined text-[18px]">live_tv</span>
-                    Cara Pasang di TikTok Live Studio
-                  </h4>
-                  <ol className="space-y-1.5 list-decimal list-inside text-amber-900">
-                    <li>
-                      Buka TikTok Live Studio &rarr; klik <strong>Add Source</strong> &rarr; pilih{" "}
-                      <strong>Link / Browser Source</strong>.
-                    </li>
-                    <li>
-                      Masukkan URL: <code className="bg-amber-100 px-1 py-0.5 rounded font-mono text-[11px]">
-                        http://.../overlay/chat
-                      </code>
-                    </li>
-                    <li>
-                      Centang <strong>Control audio via software</strong> agar suara TTS masuk langsung ke live.
-                    </li>
-                    <li>
-                      Latar belakang otomatis <strong>transparan 100%</strong> dan siap menerima pesan!
-                    </li>
-                  </ol>
-                </div>
               </div>
             </div>
           </div>
         )}
 
-        {/* TAB 2: DONATION ALERT TEST */}
+        {/* TAB 3: DONATION ALERT TEST */}
         {activeTab === "donation" && (
           <div className="flex flex-col gap-6">
             {/* 1-Click Fast Test Scenarios */}

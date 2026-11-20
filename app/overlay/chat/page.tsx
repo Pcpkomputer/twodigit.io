@@ -13,24 +13,36 @@ interface InteractiveChatMessage {
   createdAt: string;
 }
 
+const MAX_QUEUE_SIZE = 4; // Drop oldest when intense chat creates high backlog
+
 function ChatOverlayContent() {
   const searchParams = useSearchParams();
   const position = searchParams.get("pos") || "bottom-left"; // bottom-left | bottom-center | top-center | top-left
 
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
+  const [isExiting, setIsExiting] = useState<boolean>(false);
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
   const [queue, setQueue] = useState<InteractiveChatMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [displayDuration, setDisplayDuration] = useState<number>(5000);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const audioTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const processedChatIdsRef = useRef<Set<string>>(new Set());
 
-  // Helper to cleanly stop any ongoing speech/audio (does NOT clear the alert lifecycle timer)
+  // Cleanly stops any ongoing speech / audio playback
   const stopAudio = () => {
     setIsSpeaking(false);
+    if (audioTimeoutRef.current) {
+      clearTimeout(audioTimeoutRef.current);
+      audioTimeoutRef.current = null;
+    }
     if (currentAudioRef.current) {
       currentAudioRef.current.onended = null;
       currentAudioRef.current.onerror = null;
+      currentAudioRef.current.onpause = null;
       try {
         currentAudioRef.current.pause();
         currentAudioRef.current.src = "";
@@ -44,9 +56,40 @@ function ChatOverlayContent() {
     }
   };
 
+  const clearAllTimers = () => {
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
+    }
+    if (watchdogTimerRef.current) {
+      clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
+    }
+    if (audioTimeoutRef.current) {
+      clearTimeout(audioTimeoutRef.current);
+      audioTimeoutRef.current = null;
+    }
+  };
+
+  // Safe dismiss routine: plays exit animation and guarantees popup clears
+  const dismissChat = () => {
+    clearAllTimers();
+    stopAudio();
+    setIsExiting(true);
+
+    setTimeout(() => {
+      setCurrentChat(null);
+      setIsExiting(false);
+      // 400ms breather so popup visibly closes before opening the next message
+      setIsTransitioning(true);
+      setTimeout(() => {
+        setIsTransitioning(false);
+      }, 400);
+    }, 250);
+  };
+
   // Initialize and unlock audio element on mount
   useEffect(() => {
-    // Permanently cancel any lingering speech synthesis left in the browser
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -71,18 +114,18 @@ function ChatOverlayContent() {
     return () => {
       window.removeEventListener("click", unlockAudio);
       window.removeEventListener("keydown", unlockAudio);
+      clearAllTimers();
       stopAudio();
     };
   }, []);
 
-  // Text-to-Speech playback helper
+  // Text-to-Speech playback helper with hard 4-second loading safety timeout
   const playTTS = (text: string, onEnded?: () => void) => {
     if (!text || typeof window === "undefined") {
       onEnded?.();
       return;
     }
 
-    // Stop any ongoing audio before starting new playback
     stopAudio();
     setIsSpeaking(true);
 
@@ -90,9 +133,19 @@ function ChatOverlayContent() {
     const triggerEnd = () => {
       if (endedCalled) return;
       endedCalled = true;
+      if (audioTimeoutRef.current) {
+        clearTimeout(audioTimeoutRef.current);
+        audioTimeoutRef.current = null;
+      }
       setIsSpeaking(false);
       onEnded?.();
     };
+
+    // Safety watchdog for audio: if audio stalls or doesn't end within 8s, triggerEnd automatically
+    audioTimeoutRef.current = setTimeout(() => {
+      console.warn("TTS audio playback timed out (safety trigger)");
+      triggerEnd();
+    }, 7500);
 
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
@@ -110,14 +163,16 @@ function ChatOverlayContent() {
         triggerEnd();
       };
 
+      audio.onstalled = () => {
+        console.warn("TTS audio stalled");
+        triggerEnd();
+      };
+
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch((err) => {
-          if (err.name === "AbortError") {
-            // Intentionally aborted; ignore
-            return;
-          }
-          console.warn("Audio play blocked by browser policy:", err);
+          if (err.name === "AbortError") return;
+          console.warn("Audio play blocked or interrupted:", err);
           triggerEnd();
         });
       }
@@ -141,15 +196,25 @@ function ChatOverlayContent() {
     const channel = pusher.subscribe("donation-stream");
 
     channel.bind("interactive-chat", (data: InteractiveChatMessage) => {
-      console.log("Chat overlay received message:", data);
-      if (!data || !data.id) return;
+      if (!data || !data.id || !data.message) return;
 
+      // Prevent processing same message ID repeatedly
       if (processedChatIdsRef.current.has(data.id)) {
         return;
       }
       processedChatIdsRef.current.add(data.id);
 
-      setQueue((prev) => [...prev, data]);
+      // Keep cache set bounded
+      if (processedChatIdsRef.current.size > 200) {
+        const oldest = Array.from(processedChatIdsRef.current).slice(0, 50);
+        oldest.forEach((id) => processedChatIdsRef.current.delete(id));
+      }
+
+      // Add to queue with overflow trimming for intense traffic
+      setQueue((prev) => {
+        const trimmed = prev.length >= MAX_QUEUE_SIZE ? prev.slice(prev.length - (MAX_QUEUE_SIZE - 1)) : prev;
+        return [...trimmed, data];
+      });
     });
 
     return () => {
@@ -159,52 +224,45 @@ function ChatOverlayContent() {
     };
   }, []);
 
-  // Pick next chat when queue has items and none currently showing
+  // Pick next chat when idle and queue has items
   useEffect(() => {
-    if (currentChat === null && queue.length > 0) {
+    if (currentChat === null && queue.length > 0 && !isTransitioning && !isExiting) {
       const [nextChat, ...remainingQueue] = queue;
       setCurrentChat(nextChat);
       setQueue(remainingQueue);
     }
-  }, [currentChat, queue]);
+  }, [currentChat, queue, isTransitioning, isExiting]);
 
-  // Handle active chat display, TTS playback, and auto-dismiss
+  // Handle active chat display, TTS playback, and guaranteed auto-dismiss
   useEffect(() => {
     if (!currentChat) return;
 
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = null;
-    }
+    clearAllTimers();
+    setIsExiting(false);
 
-    // Speak chat message directly without "Streamer mengatakan" prefix
     const speechText = currentChat.message;
 
-    // Guaranteed fallback timer (proportional to message length, max 10s)
-    // Ensures popup ALWAYS auto-closes even if audio is blocked or interrupted
-    const fallbackTimeout = Math.min(10000, Math.max(4500, speechText.length * 120));
-    dismissTimeoutRef.current = setTimeout(() => {
-      setCurrentChat(null);
-      setIsSpeaking(false);
-    }, fallbackTimeout);
+    // Calculate maximum duration: proportional to text length, min 4.5s, max 8.5s
+    const maxDuration = Math.min(8500, Math.max(4500, speechText.length * 85));
+    setDisplayDuration(maxDuration);
 
-    // Speak and hold message on screen briefly after audio finishes
+    // 1. HARD WATCHDOG TIMER: Always guarantees the popup closes even under heavy load / OBS background throttle
+    watchdogTimerRef.current = setTimeout(() => {
+      console.log("Watchdog dismiss triggered for chat:", currentChat.id);
+      dismissChat();
+    }, maxDuration);
+
+    // 2. Play TTS and schedule earlier dismissal once audio naturally completes
     playTTS(speechText, () => {
-      if (dismissTimeoutRef.current) {
-        clearTimeout(dismissTimeoutRef.current);
-      }
-      // If there are more chats in queue, transition quicker (1s) so it doesn't backlog, otherwise 2.2s
-      const delay = queue.length > 0 ? 1000 : 2200;
-      dismissTimeoutRef.current = setTimeout(() => {
-        setCurrentChat(null);
-      }, delay);
+      // Audio finished cleanly: give a short 1s - 1.8s pause to let viewers read, then close
+      const postSpeechDelay = queue.length > 0 ? 900 : 1800;
+      dismissTimerRef.current = setTimeout(() => {
+        dismissChat();
+      }, postSpeechDelay);
     });
 
     return () => {
-      if (dismissTimeoutRef.current) {
-        clearTimeout(dismissTimeoutRef.current);
-        dismissTimeoutRef.current = null;
-      }
+      clearAllTimers();
       stopAudio();
     };
   }, [currentChat]);
@@ -230,12 +288,16 @@ function ChatOverlayContent() {
     >
       {currentChat && (
         <div
-          onClick={() => setCurrentChat(null)}
+          onClick={dismissChat}
           title="Klik untuk menutup"
-          className="animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-lg w-full pointer-events-auto cursor-pointer"
+          className={`transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer ${
+            isExiting
+              ? "opacity-0 translate-y-3 scale-95"
+              : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+          }`}
         >
           {/* Streamer Speech Card */}
-          <div className="bg-black/80 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 transition hover:border-yellow-300">
+          <div className="bg-black/85 backdrop-blur-md rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
             {/* Header: Badge, Sender Name, & Audio Wave Animation */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">
@@ -250,25 +312,51 @@ function ChatOverlayContent() {
               </div>
 
               {/* Equalizer animation when speaking */}
-              {isSpeaking && (
-                <div className="flex items-center gap-1 shrink-0 px-2 py-1 bg-yellow-400/20 rounded-md border border-yellow-400/40">
+              {isSpeaking ? (
+                <div className="flex items-center gap-1 shrink-0 px-2.5 py-1 bg-yellow-400/20 rounded-md border border-yellow-400/40">
                   <span className="w-1 h-3.5 bg-yellow-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
                   <span className="w-1 h-5 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
                   <span className="w-1 h-3 bg-yellow-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
                   <span className="text-[11px] font-bold text-yellow-300 ml-1">TTS</span>
                 </div>
+              ) : (
+                <span className="text-yellow-400/60 text-xs font-semibold shrink-0">
+                  Klik untuk tutup
+                </span>
               )}
             </div>
 
             {/* Message Body */}
-            <div className="pt-1">
+            <div className="pt-0.5">
               <p className="saweria-text-white text-base md:text-lg font-black leading-snug drop-shadow-md break-words">
                 &ldquo;{currentChat.message}&rdquo;
               </p>
             </div>
+
+            {/* Visual Lifetime Countdown Bar (Provides clear feedback that popup is active and timing down) */}
+            <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
+              <div
+                className="bg-yellow-400 h-full origin-left rounded-full"
+                style={{
+                  animation: `shrinkWidth ${displayDuration}ms linear forwards`,
+                }}
+              />
+            </div>
           </div>
         </div>
       )}
+
+      {/* Inline animation keyframes for progress bar shrink */}
+      <style jsx>{`
+        @keyframes shrinkWidth {
+          from {
+            width: 100%;
+          }
+          to {
+            width: 0%;
+          }
+        }
+      `}</style>
     </div>
   );
 }

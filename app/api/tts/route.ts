@@ -11,6 +11,7 @@ async function fetchGoogleTTS(text: string): Promise<Buffer> {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     },
+    signal: AbortSignal.timeout(3500),
   });
 
   if (!res.ok) {
@@ -34,10 +35,20 @@ async function fetchEdgeTTS(text: string): Promise<Buffer> {
   const streamResult = await tts.toStream(text);
 
   return new Promise<Buffer>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error("Edge TTS timed out after 4500ms"));
+    }, 4500);
+
     const chunks: Buffer[] = [];
     streamResult.audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
-    streamResult.audioStream.on("end", () => resolve(Buffer.concat(chunks)));
-    streamResult.audioStream.on("error", (err: Error) => reject(err));
+    streamResult.audioStream.on("end", () => {
+      clearTimeout(timeout);
+      resolve(Buffer.concat(chunks));
+    });
+    streamResult.audioStream.on("error", (err: Error) => {
+      clearTimeout(timeout);
+      reject(err);
+    });
   });
 }
 

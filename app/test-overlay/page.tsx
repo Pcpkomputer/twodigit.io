@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import Pusher from "pusher-js";
+import { SFX_CATALOG } from "@/lib/sfx";
 
 interface TestHistoryItem {
   id: string;
@@ -42,7 +43,8 @@ interface PollState {
 
 export default function TestOverlayPage() {
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "donation">("poll");
+  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "sfx" | "donation">("poll");
+  const [isTriggeringSfx, setIsTriggeringSfx] = useState<string | null>(null);
 
   // Auth state
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -425,6 +427,38 @@ export default function TestOverlayPage() {
     }
   };
 
+  const handleTriggerSfx = async (sfxId: string) => {
+    setIsTriggeringSfx(sfxId);
+    try {
+      const res = await fetch("/api/sfx/trigger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sfxId,
+          sender: "Streamer Host",
+          nickname: "Host Tester",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`🔊 ${data.message}`);
+        const matched = SFX_CATALOG.find((s) => s.id === sfxId);
+        if (matched) {
+          const audio = new Audio(matched.url);
+          audio.volume = 0.8;
+          audio.play().catch(() => {});
+        }
+      } else {
+        toast.error(data.error || "Gagal memicu SFX.");
+      }
+    } catch {
+      toast.error("Gagal menghubungi server SFX.");
+    } finally {
+      setIsTriggeringSfx(null);
+    }
+  };
+
   const copyToClipboard = (urlPath: string, label: string) => {
     const fullUrl = `${window.location.origin}${urlPath}`;
     navigator.clipboard.writeText(fullUrl);
@@ -578,6 +612,18 @@ export default function TestOverlayPage() {
           </button>
 
           <button
+            onClick={() => setActiveTab("sfx")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
+              activeTab === "sfx"
+                ? "bg-primary text-white shadow-sm"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">volume_up</span>
+            <span>🔊 Meme SFX (Soundboard)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab("donation")}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
               activeTab === "donation"
@@ -599,7 +645,7 @@ export default function TestOverlayPage() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             {/* Live Voting Card */}
             <div
               className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
@@ -631,6 +677,44 @@ export default function TestOverlayPage() {
                 </a>
                 <button
                   onClick={() => copyToClipboard(`/overlay/poll?pos=${pollPosition}`, "Live Voting")}
+                  className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
+                >
+                  Salin
+                </button>
+              </div>
+            </div>
+
+            {/* Meme SFX Overlay Card */}
+            <div
+              className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
+                activeTab === "sfx" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-xs text-gray-900 flex items-center gap-1">
+                    <span>🔊 Meme SFX</span>
+                    <span className="text-[10px] bg-amber-400 text-black px-1.5 py-0.2 rounded font-black">
+                      SFX
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">Efek suara meme live chat</p>
+                </div>
+                <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-1.5 py-0.5 rounded">
+                  /overlay/sfx
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-200/60">
+                <a
+                  href="/overlay/sfx?preview=1"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 text-center py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 transition"
+                >
+                  Preview ↗
+                </a>
+                <button
+                  onClick={() => copyToClipboard("/overlay/sfx", "Meme SFX")}
                   className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
                 >
                   Salin
@@ -1042,7 +1126,135 @@ export default function TestOverlayPage() {
           </div>
         )}
 
-        {/* TAB 2: INTERACTIVE CHAT & TTS (LIVE) */}
+        {/* TAB 2: MEME SFX SOUNDBOARD (LIVE CHAT TRIGGER) */}
+        {activeTab === "sfx" && (
+          <div className="flex flex-col gap-6">
+            {/* Header info */}
+            <div className="bg-gradient-to-r from-purple-900 to-indigo-900 rounded-2xl p-6 text-white shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="px-2.5 py-0.5 rounded-lg bg-yellow-400 text-black text-xs font-black uppercase tracking-wider">
+                    FREEMIUM SFX
+                  </span>
+                  <span className="text-xs text-purple-200 font-semibold">
+                    ⏱️ Global Cooldown: 30 Detik (Opsi 1)
+                  </span>
+                </div>
+                <h2 className="text-xl md:text-2xl font-black">🔊 Meme SFX Soundboard</h2>
+                <p className="text-xs md:text-sm text-purple-200 mt-1 max-w-2xl leading-relaxed">
+                  Penonton dapat memicu efek suara lucu langsung di OBS dengan mengetik kata kunci di komentar TikTok Live.
+                  Gunakan URL browser source <code className="bg-white/20 px-1.5 py-0.5 rounded text-white font-mono">/overlay/sfx</code> di TikTok Live Studio Anda.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href="/overlay/sfx?preview=1"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs transition border border-white/20 flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[18px]">visibility</span>
+                  Preview Overlay
+                </a>
+                <button
+                  onClick={() => copyToClipboard("/overlay/sfx", "Overlay SFX")}
+                  className="px-4 py-2 rounded-xl bg-yellow-400 hover:bg-yellow-300 text-black font-black text-xs transition shadow-sm flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[18px]">content_copy</span>
+                  Salin URL
+                </button>
+              </div>
+            </div>
+
+            {/* Soundboard Cards Grid */}
+            <section>
+              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">grid_view</span>
+                Katalog Efek Suara Meme Aktif
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {SFX_CATALOG.map((sfx) => (
+                  <div
+                    key={sfx.id}
+                    className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 flex flex-col justify-between gap-4 hover:border-primary/40 hover:shadow-md transition"
+                  >
+                    <div>
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <span className="text-3xl p-2 rounded-xl bg-gray-50 border border-gray-100">
+                          {sfx.emoji}
+                        </span>
+                        <span className="px-2.5 py-1 rounded-lg bg-yellow-100 text-yellow-900 border border-yellow-300 font-black text-xs font-mono">
+                          {sfx.command}
+                        </span>
+                      </div>
+                      <h4 className="font-bold text-gray-900 text-base mb-1">{sfx.name}</h4>
+                      <p className="text-xs text-gray-500 leading-relaxed">{sfx.description}</p>
+                    </div>
+
+                    <div className="pt-3 border-t border-gray-100 flex items-center justify-between gap-2">
+                      <span className="text-[11px] text-gray-400 font-mono">
+                        Ketik: <strong className="text-gray-700">{sfx.command}</strong>
+                      </span>
+                      <button
+                        onClick={() => handleTriggerSfx(sfx.id)}
+                        disabled={isTriggeringSfx === sfx.id}
+                        className="px-3 py-1.5 rounded-xl bg-primary hover:bg-primary/90 text-white font-bold text-xs shadow-xs transition disabled:opacity-50 flex items-center gap-1.5"
+                      >
+                        {isTriggeringSfx === sfx.id ? (
+                          <>
+                            <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                            <span>Memutar...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[16px]">play_arrow</span>
+                            <span>Uji Coba Suara</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            {/* Freemium & Architecture Guide */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-5 text-xs text-gray-700">
+                <h4 className="font-bold mb-2 flex items-center gap-1.5 text-gray-900 text-sm">
+                  <span className="material-symbols-outlined text-[18px] text-primary">memory</span>
+                  Cara Kerja Cooldown (Opsi 1: Local In-Memory)
+                </h4>
+                <p className="text-gray-600 leading-relaxed mb-2">
+                  Timer cooldown 30 detik dihitung langsung di dalam script <code className="bg-gray-100 px-1 py-0.5 rounded font-mono font-bold">tiktok-listener</code> pada komputer lokal Anda.
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-gray-600">
+                  <li><strong>Global Cooldown (30s):</strong> Suara tidak akan tumpang tindih. Jika ada yang mencoba saat cooldown, request diabaikan di lokal tanpa membebani server Vercel.</li>
+                  <li><strong>User Cooldown (45s):</strong> 1 penonton yang sama harus menunggu 45 detik agar penonton lain mendapat giliran.</li>
+                </ul>
+              </div>
+
+              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-200 p-5 text-xs text-amber-950">
+                <h4 className="font-bold mb-2 flex items-center gap-1.5 text-amber-900 text-sm">
+                  <span className="material-symbols-outlined text-[18px]">monetization_on</span>
+                  Strategi Pancingan Donasi (Freemium Hook)
+                </h4>
+                <p className="text-amber-900 leading-relaxed mb-2">
+                  Setiap kali SFX gratis berbunyi, overlay di OBS menampilkan teks:
+                  <br />
+                  <em className="text-black font-semibold">&ldquo;Cooldown 30s | Mau bypass cooldown? Donasi di twodigit.io&rdquo;</em>
+                </p>
+                <p className="text-amber-800 leading-relaxed">
+                  Penonton yang ketagihan berinteraksi tetapi malas menunggu giliran cooldown akan terdorong untuk membuka <strong>twodigit.io</strong> dan berdonasi via QRIS!
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: INTERACTIVE CHAT & TTS (LIVE) */}
         {activeTab === "chat" && (
           <div className="flex flex-col gap-6">
             {/* Quick 1-Click Streamer Shouts */}

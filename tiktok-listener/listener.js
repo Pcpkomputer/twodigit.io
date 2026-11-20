@@ -7,6 +7,8 @@ dotenv.config();
 const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME?.replace(/^@/, "").trim();
 const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3000").replace(/\/+$/, "");
 const LISTENER_SECRET = process.env.LISTENER_SECRET || "p3rw1rapc";
+const SFX_COOLDOWN_SECONDS = parseInt(process.env.SFX_COOLDOWN_SECONDS || "30", 10);
+const SFX_COOLDOWN_MS = SFX_COOLDOWN_SECONDS * 1000;
 
 if (!TIKTOK_USERNAME || TIKTOK_USERNAME === "username_streamer") {
   console.error("=====================================================================");
@@ -18,10 +20,29 @@ if (!TIKTOK_USERNAME || TIKTOK_USERNAME === "username_streamer") {
 }
 
 console.log("=====================================================================");
-console.log("🎯 TikTok Live Voting Listener by twodigit.io");
-console.log(`📡 Target Streamer : @${TIKTOK_USERNAME}`);
-console.log(`🌐 Backend URL     : ${BACKEND_URL}/api/poll/vote`);
+console.log("🎯 TikTok Live Voting & Meme SFX Listener by twodigit.io");
+console.log(`📡 Target Streamer   : @${TIKTOK_USERNAME}`);
+console.log(`🌐 Backend Server     : ${BACKEND_URL}`);
+console.log(`⏱️  Global SFX Cooldown: ${SFX_COOLDOWN_SECONDS} detik (Opsi 1: Local In-Memory)`);
 console.log("=====================================================================");
+
+// In-Memory Cooldown Tracker (Option 1: Node.js Local Variable)
+let lastGlobalSfxTime = 0;
+const userSfxCooldownMap = new Map();
+
+// Supported Meme SFX Commands
+const SFX_COMMANDS = {
+  "!klakson": { id: "klakson", name: "Klakson Mobil", emoji: "🚗" },
+  "klakson": { id: "klakson", name: "Klakson Mobil", emoji: "🚗" },
+  "!kaget": { id: "kaget", name: "Jeritan Kaget", emoji: "😱" },
+  "kaget": { id: "kaget", name: "Jeritan Kaget", emoji: "😱" },
+  "!wasted": { id: "wasted", name: "GTA Wasted", emoji: "💀" },
+  "wasted": { id: "wasted", name: "GTA Wasted", emoji: "💀" },
+  "!bruh": { id: "bruh", name: "Meme Bruh", emoji: "🗿" },
+  "bruh": { id: "bruh", name: "Meme Bruh", emoji: "🗿" },
+  "!error": { id: "error", name: "Windows Error", emoji: "⚠️" },
+  "error": { id: "error", name: "Windows Error", emoji: "⚠️" },
+};
 
 const tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME, {
   processInitialData: false,
@@ -30,8 +51,8 @@ const tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME, {
   requestPollingIntervalMs: 1000,
   clientParams: {
     app_language: "id-ID",
-    device_platform: "web"
-  }
+    device_platform: "web",
+  },
 });
 
 // Regex to capture viewer vote commands:
@@ -43,7 +64,9 @@ tiktokLiveConnection
   .connect()
   .then((state) => {
     console.log(`\n✅ Terhubung ke TikTok Live! (Room ID: ${state.roomId})`);
-    console.log("Menunggu komentar vote dari penonton (!1, !2, 1, 2, dll)...\n");
+    console.log("Menunggu komentar penonton:");
+    console.log(" - Live Vote: !1, !2, 1, 2, dll.");
+    console.log(" - Meme SFX : !klakson, !kaget, !wasted, !bruh, !error\n");
   })
   .catch((err) => {
     console.error("❌ Gagal terhubung ke TikTok Live:", err.message);
@@ -53,49 +76,115 @@ tiktokLiveConnection
 // Handle incoming chat messages
 tiktokLiveConnection.on("chat", async (data) => {
   const comment = (data.comment || "").trim();
-  const match = comment.match(VOTE_PATTERN);
-
-  if (!match) return;
-
-  const optionIndex = parseInt(match[1] || match[2], 10);
+  const lowerComment = comment.toLowerCase();
   const userId = data.uniqueId;
   const nickname = data.nickname || data.uniqueId;
+  const now = Date.now();
 
-  try {
-    const response = await axios.post(
-      `${BACKEND_URL}/api/poll/vote`,
-      {
-        optionIndex,
-        userId,
-        nickname,
-      },
-      {
-        headers: {
-          "Content-Type": "application/json",
-          "x-listener-secret": LISTENER_SECRET,
-        },
-        timeout: 5000,
-      }
-    );
-
-    if (response.data?.success) {
-      console.log(`🗳️  [VOTE DITERIMA] @${userId} (${nickname}) -> Opsi [${optionIndex}]`);
+  // -------------------------------------------------------------
+  // 1. CEK MEME SFX COMMAND (!klakson, !kaget, !wasted, !bruh, dll)
+  // -------------------------------------------------------------
+  const matchedSfx = SFX_COMMANDS[lowerComment];
+  if (matchedSfx) {
+    // Cek Global Cooldown (Opsi 1: di lokal)
+    const timeSinceLastSfx = now - lastGlobalSfxTime;
+    if (timeSinceLastSfx < SFX_COOLDOWN_MS) {
+      const remainingSec = Math.ceil((SFX_COOLDOWN_MS - timeSinceLastSfx) / 1000);
+      console.log(
+        `⏳ [SFX COOLDOWN] @${userId} mencoba ${matchedSfx.name}, sisa cooldown: ${remainingSec}s (request ditolak di lokal)`
+      );
+      return;
     }
-  } catch (error) {
-    if (error.response) {
-      if (error.response.status === 409) {
-        // Already voted
-        console.log(`⚠️  [SUDAH VOTE] @${userId} sudah memberikan suara sebelumnya.`);
-      } else if (error.response.status === 400) {
-        // No active poll or option out of range
-        console.log(`ℹ️  [DIABAIKAN] ${error.response.data?.error || "Opsi tidak valid"}`);
-      } else if (error.response.status === 401) {
-        console.error("🔒 [UNAUTHORIZED] LISTENER_SECRET tidak cocok dengan password backend!");
-      } else {
-        console.error(`❌ [ERROR API] Status ${error.response.status}:`, error.response.data);
+
+    // Per-User Cooldown (minimal 45 detik antar-pengguna)
+    const lastUserTime = userSfxCooldownMap.get(userId) || 0;
+    if (now - lastUserTime < 45000) {
+      const remainingUserSec = Math.ceil((45000 - (now - lastUserTime)) / 1000);
+      console.log(
+        `⏳ [USER COOLDOWN] @${userId} harus menunggu ${remainingUserSec}s lagi untuk memicu SFX pribadi.`
+      );
+      return;
+    }
+
+    // Cooldown lolos: catat timestamp
+    lastGlobalSfxTime = now;
+    userSfxCooldownMap.set(userId, now);
+
+    try {
+      const response = await axios.post(
+        `${BACKEND_URL}/api/sfx/trigger`,
+        {
+          sfxId: matchedSfx.id,
+          sender: userId,
+          nickname: nickname,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-listener-secret": LISTENER_SECRET,
+          },
+          timeout: 5000,
+        }
+      );
+
+      if (response.data?.success) {
+        console.log(
+          `🔊 [SFX BERHASIL] @${userId} (${nickname}) memicu ${matchedSfx.emoji} ${matchedSfx.name}!`
+        );
       }
-    } else {
-      console.error(`❌ [KONEKSI GAGAL] Tidak dapat menghubungi backend di ${BACKEND_URL}:`, error.message);
+    } catch (error) {
+      console.error(
+        `❌ [GAGAL SFX] Gagal memicu SFX ke server:`,
+        error.response?.data || error.message
+      );
+    }
+    return;
+  }
+
+  // -------------------------------------------------------------
+  // 2. CEK VOTING COMMAND (!1, !2, 1, 2)
+  // -------------------------------------------------------------
+  const voteMatch = comment.match(VOTE_PATTERN);
+  if (voteMatch) {
+    const optionIndex = parseInt(voteMatch[1] || voteMatch[2], 10);
+
+    try {
+      const response = await axios.post(
+        `${BACKEND_URL}/api/poll/vote`,
+        {
+          optionIndex,
+          userId,
+          nickname,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+            "x-listener-secret": LISTENER_SECRET,
+          },
+          timeout: 5000,
+        }
+      );
+
+      if (response.data?.success) {
+        console.log(`🗳️  [VOTE DITERIMA] @${userId} (${nickname}) -> Opsi [${optionIndex}]`);
+      }
+    } catch (error) {
+      if (error.response) {
+        if (error.response.status === 409) {
+          console.log(`⚠️  [SUDAH VOTE] @${userId} sudah memberikan suara sebelumnya.`);
+        } else if (error.response.status === 400) {
+          console.log(`ℹ️  [DIABAIKAN] ${error.response.data?.error || "Opsi tidak valid"}`);
+        } else if (error.response.status === 401) {
+          console.error("🔒 [UNAUTHORIZED] LISTENER_SECRET tidak cocok dengan password backend!");
+        } else {
+          console.error(`❌ [ERROR API] Status ${error.response.status}:`, error.response.data);
+        }
+      } else {
+        console.error(
+          `❌ [KONEKSI GAGAL] Tidak dapat menghubungi backend di ${BACKEND_URL}:`,
+          error.message
+        );
+      }
     }
   }
 });

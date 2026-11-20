@@ -1,4 +1,4 @@
-import { WebcastPushConnection } from "tiktok-live-connector";
+import { TikTokLiveConnection } from "tiktok-live-connector";
 import axios from "axios";
 import dotenv from "dotenv";
 
@@ -44,15 +44,8 @@ const SFX_COMMANDS = {
   "error": { id: "error", name: "Windows Error", emoji: "⚠️" },
 };
 
-const tiktokLiveConnection = new WebcastPushConnection(TIKTOK_USERNAME, {
+const tiktokLiveConnection = new TikTokLiveConnection(TIKTOK_USERNAME, {
   processInitialData: false,
-  enableExtendedGiftInfo: false,
-  enableWebsocketUpgrade: true,
-  requestPollingIntervalMs: 1000,
-  clientParams: {
-    app_language: "id-ID",
-    device_platform: "web",
-  },
 });
 
 // Regex to capture viewer vote commands:
@@ -75,10 +68,10 @@ tiktokLiveConnection
 
 // Handle incoming chat messages
 tiktokLiveConnection.on("chat", async (data) => {
-  const comment = (data.comment || "").trim();
+  const comment = (data.content || data.comment || "").trim();
   const lowerComment = comment.toLowerCase();
-  const userId = data.uniqueId;
-  const nickname = data.nickname || data.uniqueId;
+  const userId = data.user?.displayId || data.user?.uniqueId || data.uniqueId || data.user?.id || "anonymous";
+  const nickname = data.user?.nickname || data.nickname || userId;
   const now = Date.now();
 
   // -------------------------------------------------------------

@@ -119,8 +119,12 @@ function ChatOverlayContent() {
     };
   }, []);
 
-  // Text-to-Speech playback helper with hard 4-second loading safety timeout
-  const playTTS = (text: string, onEnded?: () => void) => {
+  // Text-to-Speech playback helper with dynamic duration detection and safety timeout
+  const playTTS = (
+    text: string,
+    onEnded?: () => void,
+    onDurationKnown?: (durationMs: number) => void
+  ) => {
     if (!text || typeof window === "undefined") {
       onEnded?.();
       return;
@@ -141,11 +145,11 @@ function ChatOverlayContent() {
       onEnded?.();
     };
 
-    // Safety watchdog for audio: if audio stalls or doesn't end within 8s, triggerEnd automatically
+    // Initial timeout before metadata loads (e.g. 6s for network handshake)
     audioTimeoutRef.current = setTimeout(() => {
-      console.warn("TTS audio playback timed out (safety trigger)");
+      console.warn("TTS audio initial handshake timed out");
       triggerEnd();
-    }, 7500);
+    }, 6000);
 
     try {
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
@@ -153,6 +157,23 @@ function ChatOverlayContent() {
       audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
       currentAudioRef.current = audio;
+
+      // When audio metadata is parsed, adapt timers to the EXACT audio length!
+      audio.onloadedmetadata = () => {
+        if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+          const audioMs = Math.round(audio.duration * 1000);
+          if (audioTimeoutRef.current) {
+            clearTimeout(audioTimeoutRef.current);
+          }
+          // Safety timeout based on actual audio duration + 3.5s buffer
+          audioTimeoutRef.current = setTimeout(() => {
+            console.warn("TTS audio duration safety limit reached");
+            triggerEnd();
+          }, audioMs + 3500);
+
+          onDurationKnown?.(audioMs);
+        }
+      };
 
       audio.onended = () => {
         triggerEnd();
@@ -242,24 +263,46 @@ function ChatOverlayContent() {
 
     const speechText = currentChat.message;
 
-    // Calculate maximum duration: proportional to text length, min 4.5s, max 8.5s
-    const maxDuration = Math.min(8500, Math.max(4500, speechText.length * 85));
-    setDisplayDuration(maxDuration);
+    // Baseline estimated duration based on text length (~115ms per character + 3500ms safety buffer)
+    // Min 5s, Max 30s. E.g. for 114 chars: 114 * 115 + 3500 = ~16.6s
+    const estimatedDuration = Math.min(
+      30000,
+      Math.max(5000, Math.ceil(speechText.length * 115) + 3500)
+    );
+    setDisplayDuration(estimatedDuration);
 
-    // 1. HARD WATCHDOG TIMER: Always guarantees the popup closes even under heavy load / OBS background throttle
+    // 1. HARD WATCHDOG TIMER: Always guarantees the popup closes even under heavy load / OBS background freeze
     watchdogTimerRef.current = setTimeout(() => {
       console.log("Watchdog dismiss triggered for chat:", currentChat.id);
       dismissChat();
-    }, maxDuration);
+    }, estimatedDuration);
 
-    // 2. Play TTS and schedule earlier dismissal once audio naturally completes
-    playTTS(speechText, () => {
-      // Audio finished cleanly: give a short 1s - 1.8s pause to let viewers read, then close
-      const postSpeechDelay = queue.length > 0 ? 900 : 1800;
-      dismissTimerRef.current = setTimeout(() => {
-        dismissChat();
-      }, postSpeechDelay);
-    });
+    // 2. Play TTS audio and dynamically adapt to the exact audio duration
+    playTTS(
+      speechText,
+      // onEnded:
+      () => {
+        // Audio finished cleanly: give a short 1s - 1.8s pause to let viewers read, then close
+        const postSpeechDelay = queue.length > 0 ? 900 : 1800;
+        dismissTimerRef.current = setTimeout(() => {
+          dismissChat();
+        }, postSpeechDelay);
+      },
+      // onDurationKnown:
+      (audioMs) => {
+        // Update countdown bar to match actual audio duration + reading buffer
+        const totalDuration = audioMs + (queue.length > 0 ? 1000 : 2000);
+        setDisplayDuration(totalDuration);
+
+        // Adjust watchdog so it generously covers full speech + 3.5s safety margin
+        if (watchdogTimerRef.current) {
+          clearTimeout(watchdogTimerRef.current);
+        }
+        watchdogTimerRef.current = setTimeout(() => {
+          dismissChat();
+        }, audioMs + 3500);
+      }
+    );
 
     return () => {
       clearAllTimers();
@@ -336,6 +379,7 @@ function ChatOverlayContent() {
             {/* Visual Lifetime Countdown Bar (Provides clear feedback that popup is active and timing down) */}
             <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
               <div
+                key={`${currentChat.id}-${displayDuration}`}
                 className="bg-yellow-400 h-full origin-left rounded-full"
                 style={{
                   animation: `shrinkWidth ${displayDuration}ms linear forwards`,

@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getActivePoll } from "@/lib/poll";
 
 export async function GET() {
-  const poll = getActivePoll();
+  const poll = await getActivePoll();
   return NextResponse.json({
     active: Boolean(poll),
     poll,

@@ -1,3 +1,4 @@
+import { supabaseAdmin } from "@/lib/supabase";
 import { pusherServer } from "@/lib/pusher";
 
 export interface PollOption {
@@ -12,30 +13,11 @@ export interface PollState {
   title: string;
   options: PollOption[];
   totalVotes: number;
-  status: "active" | "ended";
+  status: "active" | "ended" | "archived";
   createdAt: string;
   endedAt?: string;
   winner?: PollOption | null;
 }
-
-// In-memory poll store attached to globalThis to persist across Next.js dev reloads
-interface GlobalPollStore {
-  activePoll: PollState | null;
-  votedUserIds: Map<string, number>; // userId -> optionIndex
-}
-
-const globalPoll = globalThis as unknown as {
-  __pollStore?: GlobalPollStore;
-};
-
-if (!globalPoll.__pollStore) {
-  globalPoll.__pollStore = {
-    activePoll: null,
-    votedUserIds: new Map(),
-  };
-}
-
-const store = globalPoll.__pollStore;
 
 // Recalculates percentages and returns updated poll
 function recalculatePoll(poll: PollState): PollState {
@@ -49,10 +31,45 @@ function recalculatePoll(poll: PollState): PollState {
   return poll;
 }
 
-export function getActivePoll(): PollState | null {
-  return store.activePoll;
+/**
+ * Retrieves the currently active poll from Supabase database
+ */
+export async function getActivePoll(): Promise<PollState | null> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("polls")
+      .select("*")
+      .eq("status", "active")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Failed to fetch active poll from Supabase:", error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      title: data.title,
+      options: data.options as PollOption[],
+      totalVotes: data.total_votes,
+      status: data.status,
+      createdAt: data.created_at,
+      endedAt: data.ended_at,
+      winner: data.winner,
+    };
+  } catch (err) {
+    console.error("getActivePoll error:", err);
+    return null;
+  }
 }
 
+/**
+ * Creates a new poll session in Supabase and archives any prior active session
+ */
 export async function createPoll(title: string, optionLabels: string[]): Promise<PollState> {
   const cleanTitle = title.trim() || "Voting Live";
   const cleanOptions = optionLabels
@@ -70,19 +87,44 @@ export async function createPoll(title: string, optionLabels: string[]): Promise
     percentage: 0,
   }));
 
+  const pollId = `poll-${Date.now()}`;
+  const nowIso = new Date().toISOString();
+
   const newPoll: PollState = {
-    id: `poll-${Date.now()}`,
+    id: pollId,
     title: cleanTitle,
     options,
     totalVotes: 0,
     status: "active",
-    createdAt: new Date().toISOString(),
+    createdAt: nowIso,
   };
 
-  store.activePoll = newPoll;
-  store.votedUserIds.clear(); // Reset voter tracking for new poll
+  // 1. Archive any existing active poll
+  const { error: archiveError } = await supabaseAdmin
+    .from("polls")
+    .update({ status: "archived" })
+    .eq("status", "active");
 
-  // Broadcast poll creation to Pusher
+  if (archiveError) {
+    console.warn("Failed to archive prior polls:", archiveError);
+  }
+
+  // 2. Insert new poll session into Supabase
+  const { error: insertError } = await supabaseAdmin.from("polls").insert({
+    id: newPoll.id,
+    title: newPoll.title,
+    options: newPoll.options,
+    total_votes: newPoll.totalVotes,
+    status: "active",
+    created_at: newPoll.createdAt,
+  });
+
+  if (insertError) {
+    console.error("Failed to insert new poll to Supabase:", insertError);
+    throw new Error(`Gagal menyimpan voting ke database: ${insertError.message}`);
+  }
+
+  // 3. Broadcast poll creation to Pusher
   try {
     await pusherServer.trigger("donation-stream", "poll-update", newPoll);
   } catch (err) {
@@ -92,12 +134,15 @@ export async function createPoll(title: string, optionLabels: string[]): Promise
   return newPoll;
 }
 
+/**
+ * Registers a vote in Supabase with atomic duplicate prevention per TikTok user
+ */
 export async function registerVote(
   optionIndex: number,
   userId: string,
   nickname?: string
 ): Promise<{ success: boolean; message: string; poll?: PollState; duplicate?: boolean }> {
-  const poll = store.activePoll;
+  const poll = await getActivePoll();
 
   if (!poll || poll.status !== "active") {
     return { success: false, message: "Tidak ada voting yang sedang aktif." };
@@ -112,22 +157,52 @@ export async function registerVote(
     };
   }
 
-  // Enforce 1 vote per unique TikTok user
   const cleanUserId = (userId || "").trim();
+
+  // Enforce 1 vote per unique user using database UNIQUE constraint
   if (cleanUserId) {
-    if (store.votedUserIds.has(cleanUserId)) {
+    const { error: voteInsertError } = await supabaseAdmin.from("poll_votes").insert({
+      poll_id: poll.id,
+      user_id: cleanUserId,
+      option_index: optionIndex,
+      nickname: nickname || null,
+      created_at: new Date().toISOString(),
+    });
+
+    if (voteInsertError) {
+      // Postgres error code 23505 = unique_violation
+      if (voteInsertError.code === "23505" || voteInsertError.message?.toLowerCase().includes("unique")) {
+        return {
+          success: false,
+          message: `@${cleanUserId} sudah memberikan suara sebelumnya.`,
+          duplicate: true,
+        };
+      }
+
+      console.error("Failed to insert vote into poll_votes:", voteInsertError);
       return {
         success: false,
-        message: `@${cleanUserId} sudah memberikan suara sebelumnya.`,
-        duplicate: true,
+        message: "Gagal mencatat suara ke database.",
       };
     }
-    store.votedUserIds.set(cleanUserId, optionIndex);
   }
 
-  // Increment vote count
+  // Increment vote count for the chosen option
   targetOption.votes += 1;
   const updatedPoll = recalculatePoll(poll);
+
+  // Update tallies in Supabase
+  const { error: updateError } = await supabaseAdmin
+    .from("polls")
+    .update({
+      options: updatedPoll.options,
+      total_votes: updatedPoll.totalVotes,
+    })
+    .eq("id", poll.id);
+
+  if (updateError) {
+    console.error("Failed to update poll tallies in Supabase:", updateError);
+  }
 
   // Broadcast updated vote tallies to Pusher in real-time
   try {
@@ -143,8 +218,11 @@ export async function registerVote(
   };
 }
 
+/**
+ * Concludes the active poll, determines winner, and saves to database
+ */
 export async function endPoll(): Promise<PollState | null> {
-  const poll = store.activePoll;
+  const poll = await getActivePoll();
   if (!poll) return null;
 
   poll.status = "ended";
@@ -158,9 +236,23 @@ export async function endPoll(): Promise<PollState | null> {
     poll.winner = null;
   }
 
-  // Broadcast poll ended to Pusher
+  // Update in Supabase
+  const { error: updateError } = await supabaseAdmin
+    .from("polls")
+    .update({
+      status: "ended",
+      ended_at: poll.endedAt,
+      winner: poll.winner,
+    })
+    .eq("id", poll.id);
+
+  if (updateError) {
+    console.error("Failed to mark poll as ended in Supabase:", updateError);
+  }
+
+  // Broadcast poll ended event to Pusher
   try {
-    await pusherServer.trigger("donation-stream", "poll-ended", poll);
+    await pusherServer.trigger("donation-stream", "poll-update", poll);
   } catch (err) {
     console.error("Failed to broadcast poll end to Pusher:", err);
   }
@@ -168,12 +260,25 @@ export async function endPoll(): Promise<PollState | null> {
   return poll;
 }
 
+/**
+ * Resets/archives the current poll session
+ */
 export async function resetPoll(): Promise<void> {
-  store.activePoll = null;
-  store.votedUserIds.clear();
+  const { error } = await supabaseAdmin
+    .from("polls")
+    .update({ status: "archived" })
+    .eq("status", "active");
 
+  if (error) {
+    console.error("Failed to reset poll in Supabase:", error);
+  }
+
+  // Broadcast reset event to Pusher to close overlay widget
   try {
-    await pusherServer.trigger("donation-stream", "poll-reset", {});
+    await pusherServer.trigger("donation-stream", "poll-update", {
+      status: "ended",
+      action: "reset",
+    });
   } catch (err) {
     console.error("Failed to broadcast poll reset to Pusher:", err);
   }

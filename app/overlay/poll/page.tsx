@@ -108,14 +108,20 @@ function PollOverlayContent() {
 
     const channel = pusher.subscribe("donation-stream");
 
-    channel.bind("poll-update", (data: PollState) => {
+    channel.bind("poll-update", (data: any) => {
       console.log("Overlay received poll update:", data);
-      setPoll(data);
+      if (!data || data.action === "reset" || !Array.isArray(data.options)) {
+        setPoll(null);
+      } else {
+        setPoll(data);
+      }
     });
 
-    channel.bind("poll-ended", (data: PollState) => {
+    channel.bind("poll-ended", (data: any) => {
       console.log("Overlay received poll end:", data);
-      setPoll(data);
+      if (data && Array.isArray(data.options)) {
+        setPoll(data);
+      }
     });
 
     channel.bind("poll-reset", () => {
@@ -130,7 +136,7 @@ function PollOverlayContent() {
     };
   }, []);
 
-  if (!poll) {
+  if (!poll || !Array.isArray(poll.options) || poll.options.length === 0) {
     return null;
   }
 
@@ -192,7 +198,7 @@ function PollOverlayContent() {
 
           {/* Options List */}
           <div className="flex flex-col gap-2.5">
-            {poll.options.map((opt, idx) => {
+            {poll.options?.map((opt, idx) => {
               const color = OPTION_COLORS[idx % OPTION_COLORS.length];
               const isWinner = isEnded && poll.winner?.index === opt.index;
 

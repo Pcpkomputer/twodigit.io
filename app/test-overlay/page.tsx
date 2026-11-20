@@ -127,12 +127,18 @@ export default function TestOverlayPage() {
       const pusher = new Pusher(pusherKey, { cluster });
       const channel = pusher.subscribe("donation-stream");
 
-      channel.bind("poll-update", (data: PollState) => {
-        setPoll(data);
+      channel.bind("poll-update", (data: any) => {
+        if (!data || data.action === "reset" || !Array.isArray(data.options)) {
+          setPoll(null);
+        } else {
+          setPoll(data);
+        }
       });
 
-      channel.bind("poll-ended", (data: PollState) => {
-        setPoll(data);
+      channel.bind("poll-ended", (data: any) => {
+        if (data && Array.isArray(data.options)) {
+          setPoll(data);
+        }
       });
 
       channel.bind("poll-reset", () => {
@@ -852,7 +858,7 @@ export default function TestOverlayPage() {
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Poll Creator or Live Poll Dashboard */}
               <div className="lg:col-span-7 flex flex-col gap-6">
-                {poll ? (
+                {poll && Array.isArray(poll.options) && poll.options.length > 0 ? (
                   /* Active Poll Dashboard */
                   <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
                     <div className="flex items-start justify-between gap-3 border-b border-gray-100 pb-4 mb-4">
@@ -891,7 +897,7 @@ export default function TestOverlayPage() {
 
                     {/* Live Options & Progress */}
                     <div className="flex flex-col gap-3 mb-6">
-                      {poll.options.map((opt) => (
+                      {poll.options?.map((opt) => (
                         <div key={opt.index} className="p-3.5 rounded-xl bg-gray-50 border border-gray-200 flex flex-col gap-2">
                           <div className="flex items-center justify-between text-sm">
                             <div className="flex items-center gap-2 font-bold text-gray-900">
@@ -928,7 +934,7 @@ export default function TestOverlayPage() {
                           Simulasi Vote Manual (Uji Coba Animasi Overlay):
                         </p>
                         <div className="flex flex-wrap gap-2">
-                          {poll.options.map((opt) => (
+                          {poll.options?.map((opt) => (
                             <button
                               key={opt.index}
                               disabled={isActingOnPoll}

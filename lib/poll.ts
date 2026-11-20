@@ -275,10 +275,7 @@ export async function resetPoll(): Promise<void> {
 
   // Broadcast reset event to Pusher to close overlay widget
   try {
-    await pusherServer.trigger("donation-stream", "poll-update", {
-      status: "ended",
-      action: "reset",
-    });
+    await pusherServer.trigger("donation-stream", "poll-reset", {});
   } catch (err) {
     console.error("Failed to broadcast poll reset to Pusher:", err);
   }

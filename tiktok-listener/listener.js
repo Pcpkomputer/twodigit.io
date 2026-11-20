@@ -1,6 +1,13 @@
 import { TikTokLiveConnection } from "tiktok-live-connector";
 import axios from "axios";
 import dotenv from "dotenv";
+import { exec } from "child_process";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 dotenv.config();
 
@@ -52,19 +59,73 @@ const tiktokLiveConnection = new TikTokLiveConnection(TIKTOK_USERNAME, {
 // Matches: !1, !2, #1, #2, /1, 1, 2, or "!vote 1", "vote 1"
 const VOTE_PATTERN = /^(?:[!#\/]?\s*([1-9])|(?:!vote|vote)\s+([1-9]))$/i;
 
-// Connect to TikTok Live
-tiktokLiveConnection
-  .connect()
-  .then((state) => {
-    console.log(`\n✅ Terhubung ke TikTok Live! (Room ID: ${state.roomId})`);
-    console.log("Menunggu komentar penonton:");
-    console.log(" - Live Vote: !1, !2, 1, 2, dll.");
-    console.log(" - Meme SFX : !klakson, !kaget, !wasted, !bruh, !error\n");
-  })
-  .catch((err) => {
-    console.error("❌ Gagal terhubung ke TikTok Live:", err.message);
-    console.error("Pastikan akun @", TIKTOK_USERNAME, "sedang LIVE dan username benar.");
-  });
+// Connect to TikTok Live with auto-reconnect
+let isConnecting = false;
+let retryAttempt = 0;
+let reconnectTimer = null;
+
+function connectTikTok() {
+  if (isConnecting) return;
+  if (tiktokLiveConnection._connectState === "CONNECTED") return;
+
+  isConnecting = true;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+
+  const attemptNum = retryAttempt + 1;
+  console.log(`\n🔄 Menghubungkan ke TikTok Live @${TIKTOK_USERNAME}... (Percobaan #${attemptNum})`);
+
+  tiktokLiveConnection
+    .connect()
+    .then((state) => {
+      isConnecting = false;
+      retryAttempt = 0;
+      console.log(`\n✅ Terhubung ke TikTok Live! (Room ID: ${state.roomId})`);
+      console.log("Menunggu komentar penonton:");
+      console.log(" - Live Vote: !1, !2, 1, 2, dll.");
+      console.log(" - Meme SFX : !klakson, !kaget, !wasted, !bruh, !error\n");
+    })
+    .catch((err) => {
+      isConnecting = false;
+      retryAttempt++;
+      const delay = Math.min(30, 5 * retryAttempt);
+      console.error(`❌ Gagal terhubung ke TikTok Live: ${err.message}`);
+      console.log(`⏳ Mencoba menyambung kembali dalam ${delay} detik...`);
+      reconnectTimer = setTimeout(connectTikTok, delay * 1000);
+    });
+}
+
+// Initial connection
+connectTikTok();
+
+// Mainkan sound effect langsung di speaker / headset laptop streamer
+function playLocalSound(sfxId) {
+  const possiblePaths = [
+    path.resolve(__dirname, `../public/sfx/${sfxId}.mp3`),
+    path.resolve(__dirname, `./sfx/${sfxId}.mp3`),
+  ];
+  const soundFile = possiblePaths.find((p) => fs.existsSync(p));
+  if (!soundFile) {
+    return;
+  }
+
+  // macOS (afplay bawaan macOS, 0ms latency)
+  if (process.platform === "darwin") {
+    exec(`afplay "${soundFile}" &`, (err) => {
+      if (err) console.error("⚠️ afplay error:", err.message);
+    });
+  }
+  // Windows PowerShell
+  else if (process.platform === "win32") {
+    exec(`powershell -c (New-Object Media.SoundPlayer '${soundFile}').PlaySync()`, () => {});
+  }
+  // Linux
+  else if (process.platform === "linux") {
+    exec(`paplay "${soundFile}" 2>/dev/null || aplay "${soundFile}" 2>/dev/null &`, () => {});
+  }
+}
 
 // Handle incoming chat messages
 tiktokLiveConnection.on("chat", async (data) => {
@@ -102,6 +163,9 @@ tiktokLiveConnection.on("chat", async (data) => {
     // Cooldown lolos: catat timestamp
     lastGlobalSfxTime = now;
     userSfxCooldownMap.set(userId, now);
+
+    // Putar audio langsung di laptop streamer (afplay) seketika!
+    playLocalSound(matchedSfx.id);
 
     try {
       const response = await axios.post(
@@ -182,15 +246,37 @@ tiktokLiveConnection.on("chat", async (data) => {
   }
 });
 
-// Stream lifecycle events
+// Stream lifecycle events with auto-reconnect
 tiktokLiveConnection.on("streamEnd", () => {
-  console.log("\n🛑 Sesi TikTok Live telah berakhir.");
+  console.log("\n⚠️ TikTok Webcast melaporkan stream terputus / idle timeout.");
+  console.log("⏳ Mencoba menyambung kembali dalam 10 detik...");
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectTikTok, 10000);
 });
 
 tiktokLiveConnection.on("disconnected", () => {
-  console.log("\n⚠️ Terputus dari TikTok Live. Mencoba menyambung kembali...");
+  console.log("\n⚠️ Terputus dari TikTok Live. Mencoba menyambung kembali dalam 5 detik...");
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(connectTikTok, 5000);
 });
 
 tiktokLiveConnection.on("error", (err) => {
   console.error("⚠️ TikTok Connector Error:", err?.message || err);
 });
+
+// -------------------------------------------------------------
+// Vercel Serverless Keep-Alive Heartbeat (setiap 15 detik)
+// -------------------------------------------------------------
+// Vercel Serverless Function otomatis "tidur" (cold sleep) jika
+// tidak ada traffic. Interval 15 detik ini menjamin server tetap
+// panas (warm) dan memori voting tidak akan pernah terhapus!
+setInterval(async () => {
+  try {
+    const res = await axios.get(`${BACKEND_URL}/api/poll/active`, { timeout: 7000 });
+    if (res.data?.active && res.data?.poll) {
+      // Server aktif & voting terdeteksi
+    }
+  } catch (err) {
+    // Abaikan error koneksi heartbeat
+  }
+}, 15000);

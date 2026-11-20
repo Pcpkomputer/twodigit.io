@@ -77,7 +77,6 @@ function SfxOverlayContent() {
     // 4. Play audio
     try {
       const audio = new Audio(data.url);
-      audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
       currentAudioRef.current = audio;
 

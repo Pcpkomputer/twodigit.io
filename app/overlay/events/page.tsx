@@ -66,16 +66,23 @@ function TikTokEventsOverlayContent() {
       console.log("Overlay received TikTok Live Event:", data);
 
       setQueue((prev) => {
-        // Anti-lag queue management:
-        // If queue exceeds 3 items, drop lower-priority pending 'join' events
-        let updated = [...prev, data];
-        if (updated.length > 3) {
-          // Keep gifts and chats, prune joins
-          updated = updated.filter((item, idx) => item.priority < 4 || idx >= updated.length - 2);
+        // Prevent duplicate events
+        if (prev.some((item) => item.id === data.id)) return prev;
+
+        const updated = [...prev, data];
+        // Anti-lag limit: Keep max 6 pending items so audio stays real-time
+        if (updated.length > 6) {
+          const gifts = updated.filter((x) => x.priority === 1);
+          const others = updated.filter((x) => x.priority > 1).slice(-4);
+          return [...gifts, ...others];
         }
 
-        // Sort queue by priority (1 is highest)
-        return updated.sort((a, b) => a.priority - b.priority);
+        // Sort: Gifts (priority 1) jump to front, others maintain chronological order
+        return updated.sort((a, b) => {
+          if (a.priority === 1 && b.priority !== 1) return -1;
+          if (b.priority === 1 && a.priority !== 1) return 1;
+          return 0;
+        });
       });
     });
 

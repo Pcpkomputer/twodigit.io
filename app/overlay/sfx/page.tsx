@@ -25,6 +25,7 @@ function SfxOverlayContent() {
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastTriggerRef = useRef<{ id: string; sfxId: string; time: number } | null>(null);
 
   // Stop any active audio
   const stopAudio = () => {
@@ -63,6 +64,18 @@ function SfxOverlayContent() {
 
   // Handle incoming SFX trigger
   const triggerSfxAlert = (data: SfxEvent) => {
+    const now = Date.now();
+    // Debounce: prevent duplicate trigger within 2 seconds for the same event id or sfxId
+    if (
+      lastTriggerRef.current &&
+      (lastTriggerRef.current.id === data.id ||
+        (lastTriggerRef.current.sfxId === data.sfxId && now - lastTriggerRef.current.time < 2000))
+    ) {
+      console.log("Ignored duplicate SFX trigger:", data);
+      return;
+    }
+    lastTriggerRef.current = { id: data.id, sfxId: data.sfxId, time: now };
+
     // 1. Clear any active dismiss timer
     if (dismissTimerRef.current) {
       clearTimeout(dismissTimerRef.current);

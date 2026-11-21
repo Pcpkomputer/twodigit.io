@@ -91,8 +91,6 @@ function PollOverlayContent() {
     };
 
     fetchPoll();
-    const interval = setInterval(fetchPoll, 15000);
-    return () => clearInterval(interval);
   }, [isPreview]);
 
   // Subscribe to real-time Pusher updates

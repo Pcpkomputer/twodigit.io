@@ -216,7 +216,10 @@ function TikTokEventsOverlayContent() {
     <div
       className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none ${getPositionClasses()}`}
     >
-      <div className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2">
+      <div
+        style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
+        className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2"
+      >
         {/* Saweria Style Floating Event Card */}
         <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
           {/* Header Badge & Nickname */}

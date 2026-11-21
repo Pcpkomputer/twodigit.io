@@ -75,6 +75,44 @@ export default function TestOverlayPage() {
   const [simGiftCount, setSimGiftCount] = useState<number>(5);
   const [isSimulatingEvent, setIsSimulatingEvent] = useState<boolean>(false);
 
+  // Bundle All-in-One Super Overlay Layout Configurator State
+  const [bundleAlertPos, setBundleAlertPos] = useState<string>("center");
+  const [bundleEventsPos, setBundleEventsPos] = useState<string>("bottom-left");
+  const [bundleSfxPos, setBundleSfxPos] = useState<string>("bottom-right");
+  const [bundlePollPos, setBundlePollPos] = useState<string>("top-left");
+  const [bundleModules, setBundleModules] = useState<{
+    alert: boolean;
+    events: boolean;
+    sfx: boolean;
+    poll: boolean;
+  }>({
+    alert: true,
+    events: true,
+    sfx: true,
+    poll: true,
+  });
+
+  const getBundleUrl = (preview = false) => {
+    const activeMods = Object.entries(bundleModules)
+      .filter(([_, enabled]) => enabled)
+      .map(([mod]) => mod)
+      .join(",");
+
+    const params = new URLSearchParams({
+      alertPos: bundleAlertPos,
+      eventsPos: bundleEventsPos,
+      sfxPos: bundleSfxPos,
+      pollPos: bundlePollPos,
+      modules: activeMods || "none",
+    });
+
+    if (preview) {
+      params.set("preview", "1");
+    }
+
+    return `/overlay/bundle?${params.toString()}`;
+  };
+
   // Donation Form state
   const [donorName, setDonorName] = useState<string>("Donatur Tester");
   const [amount, setAmount] = useState<number>(50000);
@@ -764,12 +802,295 @@ export default function TestOverlayPage() {
           </button>
         </div>
 
-        {/* Browser Source Links Card */}
+        {/* All-in-One Super Overlay Section (Recommended for Anti-Lag & Smooth PS5 Stream) */}
+        <section className="mb-8">
+          <div className="bg-gradient-to-br from-indigo-950 via-gray-900 to-black rounded-2xl border-2 border-indigo-500/40 p-5 sm:p-6 text-white shadow-xl">
+            {/* Header */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-4 mb-5">
+              <div>
+                <div className="flex items-center gap-2 mb-1.5">
+                  <span className="px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider bg-gradient-to-r from-yellow-400 to-amber-500 text-black shadow-sm">
+                    ⭐ Solusi Utama Anti-Lag &amp; Bebas Stutter Capture Card
+                  </span>
+                  <span className="text-[11px] text-green-400 font-semibold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                    Hemat RAM 85%
+                  </span>
+                </div>
+                <h2 className="text-lg sm:text-xl font-black text-white flex items-center gap-2">
+                  <span>All-in-One Super Overlay</span>
+                  <span className="text-xs font-mono bg-white/10 text-indigo-300 px-2 py-0.5 rounded-md border border-white/10">
+                    /overlay/bundle
+                  </span>
+                </h2>
+                <p className="text-xs text-gray-300 mt-1 max-w-2xl">
+                  Cukup pasang <strong>1 Browser Source saja</strong> di TikTok Live Studio untuk Donasi, TTS Sapaan/Chat, SFX Meme, dan Live Poll. Laptop dingin, RAM enteng, dan video capture card PS5 100% mulus tanpa freeze atau fast-forward 2x!
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <a
+                  href={getBundleUrl(true)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 border border-white/15 text-xs font-bold text-white transition flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">open_in_new</span>
+                  <span>Buka Preview ↗</span>
+                </a>
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(getBundleUrl(false), "All-in-One Super Overlay")}
+                  className="px-4 py-2 rounded-xl bg-primary hover:bg-indigo-600 text-xs font-bold text-white transition shadow-md flex items-center gap-1.5 active:scale-95"
+                >
+                  <span className="material-symbols-outlined text-[16px]">content_copy</span>
+                  <span>Salin URL Bundle</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Layout Arranger & Interactive Preview Grid */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left Column: Position Dropdowns & Module Toggles */}
+              <div className="lg:col-span-7 flex flex-col gap-4">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-yellow-400">dashboard_customize</span>
+                    Atur Posisi Masing-Masing Widget di Layar
+                  </h3>
+                  <span className="text-[11px] text-gray-400">Posisi bebas, tidak saling tumpuk</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Alert Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-yellow-400 flex items-center justify-between">
+                      <span>📢 Donasi Alert</span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.alert}
+                        onChange={(e) => setBundleModules({ ...bundleModules, alert: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundleAlertPos}
+                      disabled={!bundleModules.alert}
+                      onChange={(e) => setBundleAlertPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-yellow-400 disabled:opacity-40"
+                    >
+                      <option value="center">Tengah Layar (Standar - Rekomendasi)</option>
+                      <option value="top-center">Atas Tengah</option>
+                      <option value="bottom-center">Bawah Tengah</option>
+                      <option value="top-left">Kiri Atas</option>
+                      <option value="top-right">Kanan Atas</option>
+                    </select>
+                  </div>
+
+                  {/* Events Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-pink-400 flex items-center justify-between">
+                      <span>✨ TikTok Events (Sapaan/Chat)</span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.events}
+                        onChange={(e) => setBundleModules({ ...bundleModules, events: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundleEventsPos}
+                      disabled={!bundleModules.events}
+                      onChange={(e) => setBundleEventsPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-pink-400 disabled:opacity-40"
+                    >
+                      <option value="bottom-left">Kiri Bawah (Standar - Rekomendasi)</option>
+                      <option value="bottom-right">Kanan Bawah</option>
+                      <option value="top-left">Kiri Atas</option>
+                      <option value="top-right">Kanan Atas</option>
+                      <option value="bottom-center">Bawah Tengah</option>
+                    </select>
+                  </div>
+
+                  {/* SFX Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-amber-400 flex items-center justify-between">
+                      <span>🔊 Meme SFX Toast</span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.sfx}
+                        onChange={(e) => setBundleModules({ ...bundleModules, sfx: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundleSfxPos}
+                      disabled={!bundleModules.sfx}
+                      onChange={(e) => setBundleSfxPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-amber-400 disabled:opacity-40"
+                    >
+                      <option value="bottom-right">Kanan Bawah (Standar - Rekomendasi)</option>
+                      <option value="bottom-left">Kiri Bawah</option>
+                      <option value="top-right">Kanan Atas</option>
+                      <option value="top-left">Kiri Atas</option>
+                      <option value="center">Tengah Layar</option>
+                    </select>
+                  </div>
+
+                  {/* Poll Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-cyan-400 flex items-center justify-between">
+                      <span>📊 Live Voting Poll</span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.poll}
+                        onChange={(e) => setBundleModules({ ...bundleModules, poll: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundlePollPos}
+                      disabled={!bundleModules.poll}
+                      onChange={(e) => setBundlePollPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-cyan-400 disabled:opacity-40"
+                    >
+                      <option value="top-left">Kiri Atas (Standar - Rekomendasi)</option>
+                      <option value="top-right">Kanan Atas</option>
+                      <option value="bottom-left">Kiri Bawah</option>
+                      <option value="bottom-right">Kanan Bawah</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Generated URL Bar */}
+                <div className="p-3 bg-gray-950/80 rounded-xl border border-white/10 flex items-center gap-2">
+                  <span className="text-[11px] font-mono text-gray-400 shrink-0">URL:</span>
+                  <input
+                    type="text"
+                    readOnly
+                    value={
+                      typeof window !== "undefined"
+                        ? `${window.location.origin}${getBundleUrl(false)}`
+                        : getBundleUrl(false)
+                    }
+                    className="flex-1 bg-transparent border-0 text-[11px] font-mono text-green-400 select-all outline-none truncate"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => copyToClipboard(getBundleUrl(false), "All-in-One Super Overlay")}
+                    className="px-3 py-1 bg-white/10 hover:bg-white/20 text-white font-bold text-xs rounded-lg transition shrink-0"
+                  >
+                    Salin
+                  </button>
+                </div>
+              </div>
+
+              {/* Right Column: Visual Mini Screen Preview */}
+              <div className="lg:col-span-5 flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-[16px] text-indigo-400">preview</span>
+                    Simulasi Tata Letak Layar (16:9)
+                  </h3>
+                  <span className="text-[10px] text-gray-400">Live Preview Posisi</span>
+                </div>
+
+                {/* Mini 16:9 Monitor Frame */}
+                <div className="aspect-video w-full bg-gray-950 rounded-xl border-2 border-white/15 relative overflow-hidden flex items-center justify-center p-2 shadow-inner">
+                  {/* Subtle Grid Watermark */}
+                  <span className="text-[10px] text-gray-800 font-mono select-none pointer-events-none uppercase tracking-wider">
+                    Layar Stream 1920x1080
+                  </span>
+
+                  {/* Mini Alert Chip */}
+                  {bundleModules.alert && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-yellow-400 text-black font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundleAlertPos === "center"
+                          ? "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                          : bundleAlertPos === "top-center"
+                          ? "top-2 left-1/2 -translate-x-1/2"
+                          : bundleAlertPos === "bottom-center"
+                          ? "bottom-2 left-1/2 -translate-x-1/2"
+                          : bundleAlertPos === "top-left"
+                          ? "top-2 left-2"
+                          : "top-2 right-2"
+                      }`}
+                    >
+                      📢 Alert
+                    </span>
+                  )}
+
+                  {/* Mini Events Chip */}
+                  {bundleModules.events && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-pink-500 text-white font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundleEventsPos === "bottom-left"
+                          ? "bottom-2 left-2"
+                          : bundleEventsPos === "bottom-right"
+                          ? "bottom-2 right-2"
+                          : bundleEventsPos === "top-left"
+                          ? "top-2 left-2"
+                          : bundleEventsPos === "top-right"
+                          ? "top-2 right-2"
+                          : "bottom-2 left-1/2 -translate-x-1/2"
+                      }`}
+                    >
+                      💬 Sapaan &amp; Chat
+                    </span>
+                  )}
+
+                  {/* Mini SFX Chip */}
+                  {bundleModules.sfx && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-amber-500 text-black font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundleSfxPos === "bottom-right"
+                          ? "bottom-2 right-2"
+                          : bundleSfxPos === "bottom-left"
+                          ? "bottom-2 left-2"
+                          : bundleSfxPos === "top-right"
+                          ? "top-2 right-2"
+                          : bundleSfxPos === "top-left"
+                          ? "top-2 left-2"
+                          : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
+                      }`}
+                    >
+                      🔊 SFX
+                    </span>
+                  )}
+
+                  {/* Mini Poll Chip */}
+                  {bundleModules.poll && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-cyan-500 text-black font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundlePollPos === "top-left"
+                          ? "top-2 left-2"
+                          : bundlePollPos === "top-right"
+                          ? "top-2 right-2"
+                          : bundlePollPos === "bottom-left"
+                          ? "bottom-2 left-2"
+                          : "bottom-2 right-2"
+                      }`}
+                    >
+                      📊 Voting
+                    </span>
+                  )}
+                </div>
+
+                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-gray-300">
+                  <strong className="text-white">💡 Tips TikTok Live Studio:</strong> Tambahkan 1 Browser Source dengan URL di atas, set resolusi <strong>Width: 1920, Height: 1080</strong> (atau 1080x1920 portrait). Tidak perlu menambah browser source lain lagi!
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Secondary: Individual Browser Source Links (For modular scene setups) */}
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-[16px]">tv</span>
-              Tautan Browser Source untuk TikTok Live Studio / OBS
+              <span className="material-symbols-outlined text-[16px]">layers</span>
+              Opsi Cadangan: Tautan Overlay Individual (Jika ingin dipasang terpisah per scene)
             </h2>
           </div>
 

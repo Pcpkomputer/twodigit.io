@@ -173,12 +173,16 @@ export default function OverlayPage() {
       console.log("Overlay received donation:", data);
       if (!data || !data.orderId) return;
 
-      // Deduplicate using session ref so identical orderId NEVER gets queued twice
+      // Deduplicate using session ref with bounded LRU (max 100 items)
       if (processedOrderIdsRef.current.has(data.orderId)) {
         console.warn("Ignored duplicate donation alert:", data.orderId);
         return;
       }
       processedOrderIdsRef.current.add(data.orderId);
+      if (processedOrderIdsRef.current.size > 100) {
+        const oldest = processedOrderIdsRef.current.values().next().value;
+        if (oldest) processedOrderIdsRef.current.delete(oldest);
+      }
 
       setQueue((prev) => [...prev, data]);
     });
@@ -258,7 +262,10 @@ export default function OverlayPage() {
       )}
 
       {currentAlert && (
-        <div className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible">
+        <div
+          style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
+          className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible"
+        >
           {/* Saweria Style Floating Alert: Clean vector stroke, no clipped box */}
           <div className="flex flex-col items-center justify-center gap-2 overflow-visible">
             {/* Donor Name */}

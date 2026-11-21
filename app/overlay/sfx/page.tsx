@@ -194,6 +194,7 @@ function SfxOverlayContent() {
 
       {currentSfx && (
         <div
+          style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
           onClick={() => {
             setCurrentSfx(null);
             stopAudio();

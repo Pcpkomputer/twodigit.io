@@ -183,21 +183,6 @@ export default function OverlayPage() {
       setQueue((prev) => [...prev, data]);
     });
 
-    // Also play Meme SFX triggers on the main overlay so streamers don't need a separate browser source!
-    channel.bind("sfx-trigger", (data: { url?: string; name?: string }) => {
-      console.log("Main overlay received sfx-trigger:", data);
-      if (!data || !data.url) return;
-      try {
-        const sfxAudio = new Audio(data.url);
-        sfxAudio.volume = 1.0;
-        sfxAudio.play().catch((err) => {
-          console.warn("Main overlay SFX playback blocked:", err);
-        });
-      } catch (e) {
-        console.error("Failed to play SFX on main overlay:", e);
-      }
-    });
-
     return () => {
       channel.unbind_all();
       channel.unsubscribe();

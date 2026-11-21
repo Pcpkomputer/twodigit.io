@@ -80,6 +80,7 @@ export default function TestOverlayPage() {
   // History state
   const [history, setHistory] = useState<TestHistoryItem[]>([]);
   const [chatHistory, setChatHistory] = useState<ChatHistoryItem[]>([]);
+  const [playSfxLocally, setPlaySfxLocally] = useState<boolean>(false);
 
   // Check auth status on load
   useEffect(() => {
@@ -449,11 +450,14 @@ export default function TestOverlayPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         toast.success(`🔊 ${data.message}`);
-        const matched = SFX_CATALOG.find((s) => s.id === sfxId);
-        if (matched) {
-          const audio = new Audio(matched.url);
-          audio.volume = 0.8;
-          audio.play().catch(() => {});
+        // Only play locally in this tab if explicitly enabled (prevents double audio with OBS overlay)
+        if (playSfxLocally) {
+          const matched = SFX_CATALOG.find((s) => s.id === sfxId);
+          if (matched) {
+            const audio = new Audio(matched.url);
+            audio.volume = 0.8;
+            audio.play().catch(() => {});
+          }
         }
       } else {
         toast.error(data.error || "Gagal memicu SFX.");
@@ -1175,10 +1179,22 @@ export default function TestOverlayPage() {
 
             {/* Soundboard Cards Grid */}
             <section>
-              <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3 flex items-center gap-1.5">
-                <span className="material-symbols-outlined text-[16px]">grid_view</span>
-                Katalog Efek Suara Meme Aktif
-              </h3>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-gray-500 flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-[16px]">grid_view</span>
+                  Katalog Efek Suara Meme Aktif
+                </h3>
+
+                <label className="inline-flex items-center gap-2 cursor-pointer text-xs font-semibold text-gray-600 bg-white border border-gray-200 px-3 py-1.5 rounded-xl hover:bg-gray-50 shadow-xs transition select-none">
+                  <input
+                    type="checkbox"
+                    checked={playSfxLocally}
+                    onChange={(e) => setPlaySfxLocally(e.target.checked)}
+                    className="rounded text-primary focus:ring-primary h-3.5 w-3.5"
+                  />
+                  <span>Dengar Preview di Tab Ini {playSfxLocally ? "(ON)" : "(Muted)"}</span>
+                </label>
+              </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {SFX_CATALOG.map((sfx) => (

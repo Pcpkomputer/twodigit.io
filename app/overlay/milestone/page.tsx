@@ -18,7 +18,11 @@ function MilestoneOverlayContent() {
   const startDate = searchParams.get("startDate") || "";
   const target = parseFloat(searchParams.get("target") || "1000000");
   const title = searchParams.get("title") || "Donation Goal";
-  const theme = searchParams.get("theme") || "modern"; // modern | neon | minimal
+  const position = searchParams.get("position") || "top-center";
+
+  // Scale factor: defaults to 0.75 (optimal for 1280x720) or 1.0
+  const rawScale = searchParams.get("scale");
+  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 0.75)) : 0.75;
 
   const [milestone, setMilestone] = useState<MilestoneData>({
     title,
@@ -96,13 +100,38 @@ function MilestoneOverlayContent() {
   const formattedCurrent = new Intl.NumberFormat("id-ID").format(milestone.current);
   const formattedTarget = new Intl.NumberFormat("id-ID").format(milestone.target);
 
+  const getPositionClasses = () => {
+    switch (position) {
+      case "top-left":
+        return "items-start justify-start p-8";
+      case "top-right":
+        return "items-start justify-end p-8";
+      case "bottom-left":
+        return "items-end justify-start p-8 pb-12";
+      case "bottom-right":
+        return "items-end justify-end p-8 pb-12";
+      case "bottom-center":
+        return "items-end justify-center pb-12";
+      case "center":
+        return "items-center justify-center p-8";
+      case "top-center":
+      default:
+        return "items-start justify-center pt-8";
+    }
+  };
+
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex items-start justify-center p-6 select-none font-sans pointer-events-none">
+    <div
+      className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none antialiased subpixel-antialiased [text-rendering:optimizeLegibility] ${getPositionClasses()}`}
+    >
       {/* Saweria Style Milestone: Transparent floating overlay with clean vector stroke */}
-      <div className="w-full max-w-lg flex flex-col gap-2 overflow-visible">
+      <div
+        style={scale !== 1 ? { zoom: scale } : undefined}
+        className="w-full max-w-lg flex flex-col gap-2.5 overflow-visible animate-in fade-in duration-300"
+      >
         {/* Header Title & Percentage */}
         <div className="flex items-center justify-between gap-3 overflow-visible">
-          <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
+          <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black tracking-wide truncate">
             {milestone.title}
           </h2>
 
@@ -112,23 +141,23 @@ function MilestoneOverlayContent() {
         </div>
 
         {/* Progress Bar Track */}
-        <div className="w-full h-6 bg-black/70 rounded-full overflow-hidden p-0.5 border-2 border-black shadow-2xl relative">
+        <div className="w-full h-6 bg-black/85 rounded-full overflow-hidden p-0.5 border-2 border-yellow-400/80 shadow-2xl relative">
           <div
             className="h-full bg-gradient-to-r from-amber-500 via-yellow-400 to-yellow-300 rounded-full transition-all duration-700 ease-out shadow-inner"
             style={{ width: `${Math.max(milestone.percentage, 2)}%` }}
           />
         </div>
 
-        {/* Footer Figures & Donors Count */}
-        <div className="flex items-center justify-between">
-          <div className="saweria-text-white text-sm md:text-base font-black flex items-center gap-1.5">
-            <span className="saweria-text-yellow">Rp {formattedCurrent}</span>
-            <span className="text-white">/</span>
-            <span>Rp {formattedTarget}</span>
+        {/* Footer Figures & Donors Count (Crystal sharp text) */}
+        <div className="flex items-center justify-between px-1">
+          <div className="text-sm md:text-base font-black flex items-center gap-1.5 drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
+            <span className="text-yellow-400">Rp {formattedCurrent}</span>
+            <span className="text-gray-400">/</span>
+            <span className="text-white">Rp {formattedTarget}</span>
           </div>
 
           {milestone.donorCount > 0 && (
-            <div className="saweria-text-yellow text-xs md:text-sm font-black">
+            <div className="text-yellow-300 text-xs md:text-sm font-black drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
               {milestone.donorCount} Donatur
             </div>
           )}

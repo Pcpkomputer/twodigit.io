@@ -177,27 +177,25 @@ function TopDonorsOverlayContent() {
             {topDonors.map((donor, idx) => (
               <div
                 key={donor.name + idx}
-                className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-black/75 border border-black shadow-md transition-all duration-300"
+                className="flex items-center justify-between px-3 py-2 rounded-xl bg-black/75 border border-black shadow-md transition-all duration-300"
               >
-                {/* Rank & Name (Crystal-sharp text with crisp outline, zero blur) */}
-                <div className="flex items-center gap-2.5 min-w-0">
+                {/* Rank & Name (Sleek single-line, no bulky vertical bubble) */}
+                <div className="flex items-center gap-2 min-w-0">
                   <span className="text-base shrink-0 font-black">
                     {getCrownOrMedal(idx)}
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-white text-sm md:text-base font-black truncate [text-shadow:1px_1px_0_#000,-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000]">
-                      {donor.name}
-                    </p>
-                    {donor.count > 1 && (
-                      <p className="text-[11px] text-yellow-300 font-bold">
-                        {donor.count}x donasi
-                      </p>
-                    )}
-                  </div>
+                  <p className="text-white text-sm md:text-base font-black truncate [text-shadow:1px_1px_0_#000,-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000]">
+                    {donor.name}
+                  </p>
                 </div>
 
-                {/* Amount (Crystal-sharp Gold Text with crisp outline, zero blur) */}
-                <div className="text-right shrink-0 ml-2">
+                {/* Right: Donation Count Badge & Amount */}
+                <div className="flex items-center gap-1.5 shrink-0 ml-2">
+                  {donor.count > 1 && (
+                    <span className="text-[10px] font-bold text-yellow-300 bg-white/10 px-1.5 py-0.5 rounded border border-white/15">
+                      {donor.count}x donasi
+                    </span>
+                  )}
                   <span className="text-amber-400 text-sm md:text-base font-black [text-shadow:1px_1px_0_#000,-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000]">
                     Rp {new Intl.NumberFormat("id-ID").format(donor.totalAmount)}
                   </span>

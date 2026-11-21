@@ -56,7 +56,7 @@ interface PollState {
   winner?: PollOption | null;
 }
 
-// YouTube Video ID helper
+// YouTube Video ID helper (Matching app/overlay/page.tsx)
 const getYouTubeVideoId = (url: string): string | null => {
   if (!url) return null;
   const regExp =
@@ -69,7 +69,7 @@ function YouTubeMedia({ videoId }: { videoId: string }) {
   const embedUrl = `https://www.youtube.com/embed/${videoId}?autoplay=1&mute=0&controls=0&loop=0&rel=0&modestbranding=1&enablejsapi=1`;
 
   return (
-    <div className="w-full aspect-video rounded-xl overflow-hidden shadow-lg border border-outline-variant mt-2 bg-black flex items-center justify-center">
+    <div className="w-full aspect-video rounded-2xl overflow-hidden shadow-2xl border-4 border-black mt-2 bg-black flex items-center justify-center">
       <iframe
         className="w-full h-full border-0"
         src={embedUrl}
@@ -81,41 +81,37 @@ function YouTubeMedia({ videoId }: { videoId: string }) {
   );
 }
 
-// Option colors for Poll
+// Option colors for Poll (Matching app/overlay/poll/page.tsx)
 const OPTION_COLORS = [
   {
-    badge: "bg-cyan-500/20 text-cyan-300 border-cyan-400/50",
-    bar: "bg-gradient-to-r from-cyan-500 to-blue-500",
+    badge: "bg-blue-500 text-white border-blue-400",
+    bar: "bg-gradient-to-r from-blue-500 to-indigo-600",
   },
   {
-    badge: "bg-amber-500/20 text-amber-300 border-amber-400/50",
-    bar: "bg-gradient-to-r from-amber-400 to-orange-500",
+    badge: "bg-red-500 text-white border-red-400",
+    bar: "bg-gradient-to-r from-red-500 to-rose-600",
   },
   {
-    badge: "bg-emerald-500/20 text-emerald-300 border-emerald-400/50",
-    bar: "bg-gradient-to-r from-emerald-400 to-green-500",
+    badge: "bg-amber-500 text-black border-amber-300",
+    bar: "bg-gradient-to-r from-amber-400 to-yellow-500",
   },
   {
-    badge: "bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-400/50",
-    bar: "bg-gradient-to-r from-fuchsia-500 to-purple-500",
-  },
-  {
-    badge: "bg-rose-500/20 text-rose-300 border-rose-400/50",
-    bar: "bg-gradient-to-r from-rose-500 to-red-500",
+    badge: "bg-emerald-500 text-white border-emerald-400",
+    bar: "bg-gradient-to-r from-emerald-500 to-teal-600",
   },
 ];
 
 function BundleOverlayContent() {
   const searchParams = useSearchParams();
 
-  // Scale factor: defaults to 0.72 (optimal for 1280x720 canvas!)
+  // Scale factor: defaults to 0.75 (optimal for 1280x720 canvas, or 1.0 for 1080p)
   const rawScale = searchParams.get("scale");
-  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 0.72)) : 0.72;
+  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 0.75)) : 0.75;
 
   // Positioning per module (customizable via URL query params)
   const alertPos = searchParams.get("alertPos") || "center"; // center | top-center | bottom-center | top-left | top-right
   const eventsPos = searchParams.get("eventsPos") || "bottom-left"; // bottom-left | bottom-right | bottom-center | top-left | top-right
-  const chatPos = searchParams.get("chatPos") || eventsPos || "bottom-left";
+  const chatPos = searchParams.get("chatPos") || "bottom-left";
   const sfxPos = searchParams.get("sfxPos") || "bottom-right"; // bottom-right | bottom-left | top-right | top-left | center
   const pollPos = searchParams.get("pollPos") || "top-left"; // top-left | top-right | bottom-left | bottom-right
 
@@ -136,6 +132,8 @@ function BundleOverlayContent() {
   // State: Host Interactive Chat & Announcement
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
   const [chatQueue, setChatQueue] = useState<InteractiveChatMessage[]>([]);
+  const [isChatSpeaking, setIsChatSpeaking] = useState<boolean>(false);
+  const [chatDisplayDuration, setChatDisplayDuration] = useState<number>(6000);
 
   // State: SFX
   const [currentSfx, setCurrentSfx] = useState<SfxEvent | null>(null);
@@ -205,7 +203,7 @@ function BundleOverlayContent() {
 
   // Unlock Audio on Mount
   useEffect(() => {
-    // Instantiate the single persistent audio elements
+    // Instantiate persistent audio elements
     const ttsAudio = new Audio();
     ttsAudio.crossOrigin = "anonymous";
     ttsAudioRef.current = ttsAudio;
@@ -264,7 +262,7 @@ function BundleOverlayContent() {
         });
       }
 
-      if (enabledModules.has("chat") && !currentChat && !currentEvent) {
+      if (enabledModules.has("chat") && !currentChat) {
         setCurrentChat({
           id: "prev-chat",
           sender: "Streamer Host",
@@ -304,7 +302,7 @@ function BundleOverlayContent() {
     }
   }, [isPreview]);
 
-  // Fetch initial active poll once on mount (no recurring setInterval!)
+  // Fetch initial active poll once on mount (no recurring polling loop)
   useEffect(() => {
     if (!enabledModules.has("poll")) return;
 
@@ -350,22 +348,13 @@ function BundleOverlayContent() {
         if (isDuplicate) return;
 
         setEventQueue((prev) => {
-          const updated = [...prev, data];
-          if (updated.length > 6) {
-            const gifts = updated.filter((x) => x.priority === 1);
-            const others = updated.filter((x) => x.priority > 1).slice(-4);
-            return [...gifts, ...others];
-          }
-          return updated.sort((a, b) => {
-            if (a.priority === 1 && b.priority !== 1) return -1;
-            if (b.priority === 1 && a.priority !== 1) return 1;
-            return 0;
-          });
+          const next = [...prev, data];
+          return next.slice(-8);
         });
       });
     }
 
-    // 3. Interactive Host Chat & TTS
+    // 3. Interactive Host Chat
     if (enabledModules.has("chat")) {
       channel.bind("interactive-chat", (data: InteractiveChatMessage) => {
         if (!data || !data.id || !data.message) return;
@@ -374,25 +363,24 @@ function BundleOverlayContent() {
 
         setChatQueue((prev) => {
           const next = [...prev, data];
-          return next.slice(-4);
+          return next.slice(-6);
         });
       });
     }
 
-    // 4. SFX Trigger
+    // 4. Meme SFX Soundboard
     if (enabledModules.has("sfx")) {
       channel.bind("sfx-trigger", (data: SfxEvent) => {
-        if (!data || !data.id) return;
+        if (!data || !data.id || !data.url) return;
         const isDuplicate = addBoundedId(processedSfxIdsRef, data.id);
         if (isDuplicate) return;
 
-        // Clear previous sfx dismiss timer
-        if (sfxDismissTimerRef.current) clearTimeout(sfxDismissTimerRef.current);
-        stopSfxAudio();
+        if (sfxDismissTimerRef.current) {
+          clearTimeout(sfxDismissTimerRef.current);
+        }
 
         setCurrentSfx(data);
 
-        // Play audio cleanly via persistent sfxAudioRef
         try {
           const sfxAudio = sfxAudioRef.current;
           if (sfxAudio) {
@@ -556,9 +544,12 @@ function BundleOverlayContent() {
       25000,
       Math.max(5000, Math.ceil(currentChat.message.length * 115) + 3500)
     );
+    setChatDisplayDuration(estimatedDuration);
+    setIsChatSpeaking(true);
 
     chatDismissTimerRef.current = setTimeout(() => {
       setCurrentChat(null);
+      setIsChatSpeaking(false);
       stopTTSAudio();
     }, estimatedDuration);
 
@@ -569,40 +560,46 @@ function BundleOverlayContent() {
           audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}&t=${Date.now()}`;
           audio.volume = 1.0;
           audio.onended = () => {
+            setIsChatSpeaking(false);
             if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
             chatDismissTimerRef.current = setTimeout(() => {
               setCurrentChat(null);
               stopTTSAudio();
             }, 1500);
           };
-          audio.play().catch(() => {});
+          audio.play().catch(() => {
+            setIsChatSpeaking(false);
+          });
         }
-      } catch {}
+      } catch {
+        setIsChatSpeaking(false);
+      }
     }
 
     return () => {
       if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+      setIsChatSpeaking(false);
     };
   }, [currentChat]);
 
-  // Dynamic Position Class Builders (Optimized for 1280x720 canvas)
+  // Dynamic Position Class Builders (Exact matching individual overlay padding)
   const getContainerClasses = (pos: string) => {
     switch (pos) {
       case "top-left":
-        return "items-start justify-start p-3 sm:p-5";
+        return "items-start justify-start p-8";
       case "top-right":
-        return "items-start justify-end p-3 sm:p-5";
+        return "items-start justify-end p-8";
       case "top-center":
-        return "items-start justify-center pt-3 sm:pt-5";
+        return "items-start justify-center pt-8";
       case "bottom-right":
-        return "items-end justify-end p-3 sm:p-5 pb-5 sm:pb-6";
+        return "items-end justify-end p-8 pb-12";
       case "bottom-center":
-        return "items-end justify-center pb-5 sm:pb-6";
+        return "items-end justify-center pb-12";
+      case "center":
+        return "items-center justify-center p-8";
       case "bottom-left":
       default:
-        return "items-end justify-start p-3 sm:p-5 pb-5 sm:pb-6";
-      case "center":
-        return "items-center justify-center p-3 sm:p-5";
+        return "items-end justify-start p-8 pb-12";
     }
   };
 
@@ -618,14 +615,15 @@ function BundleOverlayContent() {
         return "bottom right";
       case "bottom-center":
         return "bottom center";
+      case "center":
+        return "center center";
       case "bottom-left":
       default:
         return "bottom left";
-      case "center":
-        return "center center";
     }
   };
 
+  // Badge styling per event (Exact matching app/overlay/events/page.tsx)
   const getBadgeStyle = (eventType: string) => {
     switch (eventType) {
       case "gift":
@@ -646,17 +644,24 @@ function BundleOverlayContent() {
 
   return (
     <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden select-none font-sans pointer-events-none">
-      {/* Audio Unlock Notification if browser policy blocks autoplay */}
+      {/* Audio Unlock Notification (Exact matching individual overlay) */}
       {!audioUnlocked && (
         <div
-          onClick={() => setAudioUnlocked(true)}
-          className="fixed top-3 left-1/2 -translate-x-1/2 bg-black/85 text-yellow-300 text-xs font-bold px-3 py-1.5 rounded-full border border-yellow-400 pointer-events-auto cursor-pointer animate-pulse z-50 shadow-lg flex items-center gap-1.5"
+          onClick={() => {
+            const silent = new Audio(
+              "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+            );
+            silent.volume = 0.01;
+            silent.play().catch(() => {});
+            setAudioUnlocked(true);
+          }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 bg-black/85 text-yellow-300 text-xs font-bold px-4 py-2 rounded-full border border-yellow-400 pointer-events-auto cursor-pointer animate-pulse z-50 shadow-lg flex items-center gap-1.5"
         >
-          <span>🔊</span> Klik layar untuk mengaktifkan audio stream
+          <span>🔊</span> Klik layar untuk mengaktifkan suara audio
         </div>
       )}
 
-      {/* 1. DONATION ALERT WIDGET */}
+      {/* 1. DONATION ALERT WIDGET (100% IDENTICAL TO /overlay) */}
       {enabledModules.has("alert") && currentAlert && (
         <div
           className={`absolute inset-0 flex pointer-events-none ${getContainerClasses(
@@ -669,31 +674,39 @@ function BundleOverlayContent() {
               transform: `scale(${scale}) translateZ(0)`,
               transformOrigin: getTransformOrigin(alertPos),
             }}
-            className="max-w-md w-full flex flex-col items-center text-center animate-in fade-in zoom-in-95 duration-300"
+            className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible"
           >
-            <div className="flex flex-col items-center justify-center gap-1.5 overflow-visible">
+            {/* Saweria Style Floating Alert: Clean vector stroke, no clipped box */}
+            <div className="flex flex-col items-center justify-center gap-2 overflow-visible">
+              {/* Donor Name */}
               <div>
-                <span className="saweria-text-yellow text-3xl sm:text-4xl uppercase font-black">
+                <span className="saweria-text-yellow text-4xl md:text-5xl uppercase font-black">
                   {currentAlert.name}
                 </span>
               </div>
+
+              {/* Amount Banner */}
               <div className="flex items-center justify-center gap-2">
-                <span className="saweria-text-white text-xl sm:text-2xl font-black">
+                <span className="saweria-text-white text-2xl md:text-3xl font-black">
                   mendonasikan
                 </span>
-                <span className="saweria-text-yellow text-xl sm:text-2xl font-black">
+                <span className="saweria-text-yellow text-2xl md:text-3xl font-black">
                   Rp {new Intl.NumberFormat("id-ID").format(currentAlert.amount)}
                 </span>
               </div>
+
+              {/* Message */}
               {currentAlert.message && (
-                <div className="mt-2 px-5 py-2 rounded-xl bg-black/60 border-2 border-black/80 max-w-sm">
-                  <p className="saweria-text-white text-base sm:text-lg font-black italic">
+                <div className="mt-3 px-6 py-2.5 rounded-2xl bg-black/45 border-2 border-black/80 max-w-xl">
+                  <p className="saweria-text-white text-xl md:text-2xl font-black italic">
                     &ldquo;{currentAlert.message}&rdquo;
                   </p>
                 </div>
               )}
+
+              {/* Media Share YouTube Player */}
               {videoId && (
-                <div className="w-full max-w-sm mt-2 rounded-xl overflow-hidden border-2 border-black shadow-xl">
+                <div className="w-full max-w-lg mt-3 rounded-2xl overflow-hidden border-4 border-black shadow-2xl">
                   <YouTubeMedia videoId={videoId} />
                 </div>
               )}
@@ -702,7 +715,7 @@ function BundleOverlayContent() {
         </div>
       )}
 
-      {/* 2. TIKTOK LIVE EVENTS TTS WIDGET (Join, Chat, Gift, Follow, Share) */}
+      {/* 2. TIKTOK LIVE EVENTS TTS WIDGET (100% IDENTICAL TO /overlay/events) */}
       {enabledModules.has("events") && currentEvent && (
         <div
           className={`absolute inset-0 flex pointer-events-none ${getContainerClasses(
@@ -715,26 +728,31 @@ function BundleOverlayContent() {
               transform: `scale(${scale}) translateZ(0)`,
               transformOrigin: getTransformOrigin(eventsPos),
             }}
-            className="w-full max-w-xs sm:max-w-sm animate-in fade-in slide-in-from-bottom-4 duration-300 flex flex-col gap-1.5"
+            className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2"
           >
-            <div className="bg-black/85 rounded-xl p-3 border-2 border-yellow-400 shadow-xl flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
-                  <span className="saweria-text-yellow text-base sm:text-lg uppercase font-black truncate">
+            {/* Saweria Style Floating Event Card */}
+            <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
+              {/* Header Badge & Nickname */}
+              <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-2xl shrink-0">{currentEvent.badgeEmoji}</span>
+                  <span className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
                     {currentEvent.nickname}
                   </span>
                 </div>
+
                 <span
-                  className={`px-2 py-0.5 rounded-md border text-[10px] tracking-wider uppercase shrink-0 shadow-sm ${getBadgeStyle(
+                  className={`px-2.5 py-0.5 rounded-lg border text-xs tracking-wider uppercase shrink-0 shadow-sm ${getBadgeStyle(
                     currentEvent.eventType
                   )}`}
                 >
                   {currentEvent.eventType}
                 </span>
               </div>
+
+              {/* Event Content / Message */}
               <div className="pt-0.5">
-                <p className="saweria-text-white text-sm sm:text-base font-black leading-snug break-words">
+                <p className="saweria-text-white text-base md:text-lg font-black leading-snug break-words">
                   {currentEvent.displayText}
                 </p>
               </div>
@@ -743,7 +761,7 @@ function BundleOverlayContent() {
         </div>
       )}
 
-      {/* 3. INTERACTIVE HOST CHAT WIDGET */}
+      {/* 3. INTERACTIVE HOST CHAT WIDGET (100% IDENTICAL TO /overlay/chat) */}
       {enabledModules.has("chat") && currentChat && (
         <div
           className={`absolute inset-0 flex pointer-events-none ${getContainerClasses(
@@ -756,33 +774,65 @@ function BundleOverlayContent() {
               transform: `scale(${scale}) translateZ(0)`,
               transformOrigin: getTransformOrigin(chatPos),
             }}
-            className="w-full max-w-xs sm:max-w-sm animate-in fade-in slide-in-from-bottom-4 duration-300 flex flex-col gap-1.5"
+            onClick={() => {
+              setCurrentChat(null);
+              stopTTSAudio();
+            }}
+            className="transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-5"
           >
-            <div className="bg-black/90 rounded-xl p-3 border-2 border-indigo-400 shadow-xl flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="text-lg shrink-0">🎙️</span>
-                  <span className="saweria-text-yellow text-base font-black truncate">
+            {/* Streamer Speech Card */}
+            <div className="bg-black/85 backdrop-blur-md rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
+              {/* Header: Badge, Sender Name, & Audio Wave Animation */}
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  {currentChat.badge && (
+                    <span className="px-2.5 py-0.5 rounded-lg bg-yellow-400 text-black font-black text-xs uppercase tracking-wider shrink-0 shadow-sm">
+                      {currentChat.badge}
+                    </span>
+                  )}
+                  <span className="saweria-text-yellow text-lg md:text-xl font-black truncate">
                     {currentChat.sender}
                   </span>
                 </div>
-                {currentChat.badge && (
-                  <span className="px-2 py-0.5 rounded-md border text-[10px] bg-indigo-500/20 text-indigo-300 border-indigo-400/50 uppercase font-black shrink-0">
-                    {currentChat.badge}
+
+                {/* Equalizer animation when speaking */}
+                {isChatSpeaking ? (
+                  <div className="flex items-center gap-1 shrink-0 px-2.5 py-1 bg-yellow-400/20 rounded-md border border-yellow-400/40">
+                    <span className="w-1 h-3.5 bg-yellow-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                    <span className="w-1 h-5 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                    <span className="w-1 h-3 bg-yellow-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                    <span className="text-[11px] font-bold text-yellow-300 ml-1">TTS</span>
+                  </div>
+                ) : (
+                  <span className="text-yellow-400/60 text-xs font-semibold shrink-0">
+                    Klik untuk tutup
                   </span>
                 )}
               </div>
+
+              {/* Message Body */}
               <div className="pt-0.5">
-                <p className="saweria-text-white text-sm sm:text-base font-black leading-snug break-words">
+                <p className="saweria-text-white text-base md:text-lg font-black leading-snug drop-shadow-md break-words">
                   &ldquo;{currentChat.message}&rdquo;
                 </p>
+              </div>
+
+              {/* Visual Lifetime Countdown Bar */}
+              <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
+                <div
+                  key={`${currentChat.id}-${chatDisplayDuration}`}
+                  className="bg-yellow-400 h-full origin-left rounded-full"
+                  style={{
+                    animation: `shrinkWidth ${chatDisplayDuration}ms linear forwards`,
+                  }}
+                />
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* 4. MEME SFX WIDGET */}
+      {/* 4. MEME SFX WIDGET (100% IDENTICAL TO /overlay/sfx) */}
       {enabledModules.has("sfx") && currentSfx && (
         <div
           className={`absolute inset-0 flex pointer-events-none ${getContainerClasses(
@@ -795,23 +845,49 @@ function BundleOverlayContent() {
               transform: `scale(${scale}) translateZ(0)`,
               transformOrigin: getTransformOrigin(sfxPos),
             }}
-            className="w-full max-w-xs animate-in fade-in zoom-in-90 duration-200"
+            onClick={() => {
+              setCurrentSfx(null);
+              stopSfxAudio();
+            }}
+            className="animate-in fade-in slide-in-from-bottom-5 duration-300 max-w-sm w-full pointer-events-auto cursor-pointer"
           >
-            <div className="bg-black/85 rounded-xl p-2.5 border-2 border-amber-400 shadow-xl flex items-center gap-2.5">
-              <div className="w-9 h-9 rounded-lg bg-amber-400/20 border border-amber-400/50 flex items-center justify-center text-xl shrink-0">
-                {currentSfx.emoji}
-              </div>
-              <div className="flex flex-col min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="saweria-text-yellow text-sm font-black truncate">
-                    {currentSfx.name}
-                  </span>
-                  <span className="text-[9px] bg-amber-400 text-black px-1.5 py-0.2 rounded font-black shrink-0">
-                    {currentSfx.command}
-                  </span>
+            {/* SFX Alert Toast Card */}
+            <div className="bg-black/90 rounded-2xl p-4 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none transition hover:border-yellow-300">
+              {/* Top Row: Emoji & Sender */}
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-3xl shrink-0 animate-bounce">{currentSfx.emoji}</span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="px-2 py-0.5 rounded-md bg-yellow-400 text-black font-black text-[11px] uppercase tracking-wider">
+                        {currentSfx.command}
+                      </span>
+                      <span className="text-[11px] text-gray-300 font-bold truncate">
+                        @{currentSfx.sender}
+                      </span>
+                    </div>
+                    <h3 className="saweria-text-yellow text-base font-black truncate">
+                      {currentSfx.name}
+                    </h3>
+                  </div>
                 </div>
-                <span className="text-[11px] text-gray-300 font-semibold truncate mt-0.5">
-                  Dari: <span className="saweria-text-white font-bold">{currentSfx.nickname}</span>
+
+                {/* Sound Wave Indicator */}
+                <div className="flex items-center gap-1 shrink-0 px-2 py-1 bg-yellow-400/20 rounded-md border border-yellow-400/40">
+                  <span className="w-1 h-3.5 bg-yellow-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                  <span className="w-1 h-5 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                  <span className="w-1 h-3 bg-yellow-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                  <span className="text-[10px] font-bold text-yellow-300 ml-1">SFX</span>
+                </div>
+              </div>
+
+              {/* Freemium Hook Bar */}
+              <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[10px]">
+                <span className="text-yellow-300/90 font-bold flex items-center gap-1">
+                  <span>⚡</span> Cooldown: 30s
+                </span>
+                <span className="text-gray-400 font-semibold truncate">
+                  Bypass cooldown? Donasi di <strong className="text-white">twodigit.io</strong>
                 </span>
               </div>
             </div>
@@ -819,7 +895,7 @@ function BundleOverlayContent() {
         </div>
       )}
 
-      {/* 5. LIVE VOTING POLL WIDGET */}
+      {/* 5. LIVE VOTING POLL WIDGET (100% IDENTICAL TO /overlay/poll) */}
       {enabledModules.has("poll") &&
         poll &&
         Array.isArray(poll.options) &&
@@ -835,55 +911,80 @@ function BundleOverlayContent() {
                 transform: `scale(${scale}) translateZ(0)`,
                 transformOrigin: getTransformOrigin(pollPos),
               }}
-              className="w-full max-w-xs animate-in fade-in duration-300"
+              className="w-full max-w-md animate-in fade-in duration-300 flex flex-col gap-3"
             >
-              <div className="bg-black/85 rounded-xl p-3 border-2 border-yellow-400 shadow-xl flex flex-col gap-2">
-                <div className="flex items-start justify-between gap-2 border-b border-white/10 pb-1.5">
-                  <div>
-                    <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase tracking-wider bg-yellow-400 text-black inline-block mb-0.5">
-                      {poll.status === "active" ? "📊 Live Voting" : "🏆 Hasil Voting"}
-                    </span>
-                    <h3 className="saweria-text-white text-xs sm:text-sm font-black leading-tight">
-                      {poll.title}
-                    </h3>
+              {/* Main Poll Card */}
+              <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-3.5 backdrop-blur-none">
+                {/* Header: Status Badge & Total Votes on top, Full-Width Title below */}
+                <div className="border-b border-white/10 pb-3 flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-xl shrink-0">📊</span>
+                      {poll.status === "ended" ? (
+                        <span className="px-2.5 py-0.5 rounded-md bg-red-500/25 border border-red-500/50 text-red-300 text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-400"></span>
+                          Voting Selesai
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded-md bg-green-500/25 border border-green-400/50 text-green-300 text-xs font-black uppercase tracking-wider shadow-sm flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></span>
+                          Live Vote
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-xs font-bold text-gray-300/90 bg-white/10 px-2 py-0.5 rounded-md border border-white/10">
+                        {poll.totalVotes} suara
+                      </span>
+                    </div>
                   </div>
-                  <span className="saweria-text-yellow text-[10px] font-black shrink-0">
-                    {poll.totalVotes} Vote
-                  </span>
+
+                  {/* Title (Full width) */}
+                  <h2 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-snug break-words">
+                    {poll.title}
+                  </h2>
                 </div>
 
-                <div className="flex flex-col gap-1.5">
+                {/* Options List */}
+                <div className="flex flex-col gap-2.5">
                   {poll.options.map((opt, idx) => {
                     const color = OPTION_COLORS[idx % OPTION_COLORS.length];
                     const isWinner = poll.status === "ended" && poll.winner?.index === opt.index;
 
                     return (
-                      <div
-                        key={opt.index}
-                        className={`p-1.5 rounded-lg border transition-all ${
-                          isWinner
-                            ? "bg-yellow-400/20 border-yellow-400"
-                            : "bg-white/5 border-white/10"
-                        }`}
-                      >
-                        <div className="flex items-center justify-between text-[10px] mb-1">
-                          <div className="flex items-center gap-1 font-black text-white">
-                            <span className="px-1 py-0.1 rounded bg-yellow-400 text-black text-[9px] font-black">
+                      <div key={opt.index} className="flex flex-col gap-1">
+                        {/* Option Label, Votes & Percentage */}
+                        <div className="flex items-center justify-between text-xs md:text-sm font-black">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span
+                              className={`px-2 py-0.5 rounded-md border font-black text-xs shrink-0 ${color.badge}`}
+                            >
                               !{opt.index}
                             </span>
-                            <span className="saweria-text-white truncate max-w-[130px]">
-                              {isWinner && "👑 "}
+                            <span className="saweria-text-white truncate">
+                              {isWinner && <span className="mr-1">👑</span>}
                               {opt.label}
                             </span>
                           </div>
-                          <span className="saweria-text-yellow font-black">
-                            {opt.percentage}%
-                          </span>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="saweria-text-sm text-[11px] text-gray-300">
+                              {opt.votes} vote
+                            </span>
+                            <span className="saweria-text-yellow text-sm md:text-base">
+                              {opt.percentage}%
+                            </span>
+                          </div>
                         </div>
-                        <div className="w-full h-1.5 rounded-full bg-white/10 overflow-hidden">
+
+                        {/* Progress Track */}
+                        <div className="w-full h-4 bg-black/80 rounded-full overflow-hidden p-0.5 border border-white/20 relative shadow-inner">
                           <div
-                            className={`h-full rounded-full transition-all duration-500 ${color.bar}`}
-                            style={{ width: `${opt.percentage}%` }}
+                            className={`h-full rounded-full transition-all duration-500 ease-out ${color.bar}`}
+                            style={{
+                              width: `${Math.max(opt.percentage, opt.votes > 0 ? 3 : 0)}%`,
+                            }}
                           />
                         </div>
                       </div>
@@ -891,23 +992,54 @@ function BundleOverlayContent() {
                   })}
                 </div>
 
-                <div className="pt-1 border-t border-white/10 flex items-center justify-between text-[10px]">
-                  <span className="text-gray-400 font-medium">Komentar live:</span>
-                  <span className="saweria-text-yellow font-black">
-                    {poll.options.map((o) => `!${o.index}`).join(" / ")}
+                {/* Footer Callout */}
+                <div className="pt-2 border-t border-white/10 flex items-center justify-between text-xs">
+                  <span className="text-yellow-300 font-bold flex items-center gap-1.5">
+                    <span className="text-sm">💬</span> Ketik{" "}
+                    <span className="px-1.5 py-0.5 rounded bg-yellow-400 text-black font-black text-[11px]">
+                      !1
+                    </span>{" "}
+                    atau{" "}
+                    <span className="px-1.5 py-0.5 rounded bg-yellow-400 text-black font-black text-[11px]">
+                      !2
+                    </span>{" "}
+                    di live chat!
                   </span>
+                  {poll.status === "ended" && poll.winner ? (
+                    <span className="text-green-300 font-black text-[11px] flex items-center gap-1 shrink-0">
+                      <span>👑</span> {poll.winner.label}
+                    </span>
+                  ) : null}
                 </div>
               </div>
             </div>
           </div>
         )}
+
+      {/* Inline animation keyframes for progress bar shrink */}
+      <style jsx>{`
+        @keyframes shrinkWidth {
+          from {
+            width: 100%;
+          }
+          to {
+            width: 0%;
+          }
+        }
+      `}</style>
     </div>
   );
 }
 
 export default function BundleOverlayPage() {
   return (
-    <Suspense fallback={null}>
+    <Suspense
+      fallback={
+        <div className="fixed inset-0 flex items-center justify-center text-white/70 bg-transparent font-bold">
+          Loading All-in-One Super Overlay...
+        </div>
+      }
+    >
       <BundleOverlayContent />
     </Suspense>
   );

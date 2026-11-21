@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
       message = "",
       badge = "🎙️ Host",
       theme = "streamer",
+      voice = "schoolgirl",
     } = body;
 
     const cleanMessage = (message || "").trim();
@@ -43,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     const cleanSender = (sender || "Streamer").trim();
     const cleanBadge = (badge || "🎙️ Host").trim();
+    const cleanVoice = (voice || "schoolgirl").trim();
     const nowIso = new Date().toISOString();
     const chatId = `chat-${Date.now()}`;
 
@@ -52,6 +54,7 @@ export async function POST(request: NextRequest) {
       message: cleanMessage,
       badge: cleanBadge,
       theme,
+      voice: cleanVoice,
       createdAt: nowIso,
     };
 

@@ -133,6 +133,7 @@ export default function TestOverlayPage() {
   const [chatBadge, setChatBadge] = useState<string>("🎙️ Host");
   const [chatMessage, setChatMessage] = useState<string>("");
   const [chatPosition, setChatPosition] = useState<string>("bottom-left");
+  const [chatVoice, setChatVoice] = useState<string>("schoolgirl");
   const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
 
   // Poll state
@@ -351,6 +352,7 @@ export default function TestOverlayPage() {
           sender: senderToSend,
           badge: badgeToSend,
           message: msgToSend,
+          voice: chatVoice,
         }),
       });
 
@@ -2011,6 +2013,46 @@ export default function TestOverlayPage() {
                         placeholder="Ketik pesan yang ingin ditampilkan dan disuarakan di live streaming..."
                         className="w-full p-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none transition text-sm leading-relaxed"
                       />
+                    </div>
+
+                    {/* Voice Selector for TTS */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-indigo-50/70 border border-indigo-100 text-xs">
+                      <div>
+                        <label className="font-bold text-indigo-950 flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[18px] text-indigo-600">
+                            record_voice_over
+                          </span>
+                          <span>Karakter Suara TTS:</span>
+                        </label>
+                        <p className="text-[11px] text-indigo-700/80 mt-0.5">
+                          Pilihan suara untuk membacakan pesan interaktif di stream
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <select
+                          value={chatVoice}
+                          onChange={(e) => setChatVoice(e.target.value)}
+                          className="flex-1 sm:flex-initial bg-white border border-indigo-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-gray-800 outline-none focus:border-primary shadow-sm cursor-pointer"
+                        >
+                          <option value="schoolgirl">👧 Siswi SMP / Remaja (+20% Pitch Imut) ⭐</option>
+                          <option value="anime">🌸 Cewek Anime / Imut Ceria (+30% Pitch)</option>
+                          <option value="gadis">👩 Gadis Dewasa Natural (Microsoft Gadis)</option>
+                          <option value="ardi">👨 Cowok Ardi Natural (Microsoft Ardi)</option>
+                          <option value="google">🤖 Google Robot Klasik (Saweria)</option>
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const testAudio = new Audio(`/api/tts?text=${encodeURIComponent("Halo semua! Selamat datang di live streaming aku ya! Semangat selalu!")}&voice=${chatVoice}&t=${Date.now()}`);
+                            testAudio.play().catch(() => {});
+                          }}
+                          title="Dengarkan Contoh Suara"
+                          className="px-2.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 active:scale-95 text-white font-bold text-xs shrink-0 flex items-center gap-1 shadow-sm transition"
+                        >
+                          <span>🔊</span>
+                          <span>Tes Suara</span>
+                        </button>
+                      </div>
                     </div>
 
                     {/* Position selector for URL */}

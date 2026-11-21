@@ -23,6 +23,7 @@ interface InteractiveChatMessage {
   message: string;
   badge?: string;
   theme?: string;
+  voice?: string;
   createdAt: string;
 }
 
@@ -557,7 +558,8 @@ function BundleOverlayContent() {
       try {
         const audio = ttsAudioRef.current;
         if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}&t=${Date.now()}`;
+          const voiceParam = currentChat.voice ? `&voice=${encodeURIComponent(currentChat.voice)}` : "&voice=schoolgirl";
+          audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
           audio.volume = 1.0;
           audio.onended = () => {
             setIsChatSpeaking(false);

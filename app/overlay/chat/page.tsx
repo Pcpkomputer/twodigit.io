@@ -10,6 +10,7 @@ interface InteractiveChatMessage {
   message: string;
   badge?: string;
   theme?: string;
+  voice?: string;
   createdAt: string;
 }
 
@@ -123,7 +124,8 @@ function ChatOverlayContent() {
   const playTTS = (
     text: string,
     onEnded?: () => void,
-    onDurationKnown?: (durationMs: number) => void
+    onDurationKnown?: (durationMs: number) => void,
+    voiceName = "schoolgirl"
   ) => {
     if (!text || typeof window === "undefined") {
       onEnded?.();
@@ -152,7 +154,8 @@ function ChatOverlayContent() {
     }, 6000);
 
     try {
-      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
+      const voiceParam = voiceName ? `&voice=${encodeURIComponent(voiceName)}` : "&voice=schoolgirl";
+      const audioUrl = `/api/tts?text=${encodeURIComponent(text)}${voiceParam}&t=${Date.now()}`;
       const audio = new Audio(audioUrl);
       audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
@@ -301,7 +304,8 @@ function ChatOverlayContent() {
         watchdogTimerRef.current = setTimeout(() => {
           dismissChat();
         }, audioMs + 3500);
-      }
+      },
+      currentChat.voice || "schoolgirl"
     );
 
     return () => {

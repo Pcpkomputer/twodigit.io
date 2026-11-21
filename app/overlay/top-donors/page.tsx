@@ -18,9 +18,9 @@ function TopDonorsOverlayContent() {
   const title = searchParams.get("title") || "Top Donatur";
   const position = searchParams.get("position") || "top-left";
 
-  // Scale factor: defaults to 0.75 (optimal for 1280x720) or 1.0
+  // Scale: defaults to 1.0 (Full 100% native crisp size like milestone)
   const rawScale = searchParams.get("scale");
-  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 0.75)) : 0.75;
+  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 1.0)) : 1.0;
 
   const [topDonors, setTopDonors] = useState<DonorLeaderboardItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -126,20 +126,20 @@ function TopDonorsOverlayContent() {
   const getPositionClasses = () => {
     switch (position) {
       case "top-right":
-        return "items-start justify-end p-8";
+        return "items-start justify-end p-6";
       case "top-center":
-        return "items-start justify-center pt-8";
+        return "items-start justify-center p-6";
       case "bottom-left":
-        return "items-end justify-start p-8 pb-12";
+        return "items-end justify-start p-6 pb-10";
       case "bottom-right":
-        return "items-end justify-end p-8 pb-12";
+        return "items-end justify-end p-6 pb-10";
       case "bottom-center":
-        return "items-end justify-center pb-12";
+        return "items-end justify-center pb-10";
       case "center":
-        return "items-center justify-center p-8";
+        return "items-center justify-center p-6";
       case "top-left":
       default:
-        return "items-start justify-start p-8";
+        return "items-start justify-start p-6";
     }
   };
 
@@ -147,67 +147,65 @@ function TopDonorsOverlayContent() {
     <div
       className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none antialiased subpixel-antialiased [text-rendering:optimizeLegibility] ${getPositionClasses()}`}
     >
-      {/* Saweria Style Top Donors Card: High-contrast, crystal-sharp typography */}
+      {/* Saweria Style Top Donors: Original floating style without yellow card container */}
       <div
         style={scale !== 1 ? { zoom: scale } : undefined}
-        className="w-full max-w-sm flex flex-col gap-2.5 animate-in fade-in duration-300"
+        className="w-full max-w-sm flex flex-col gap-2.5 overflow-visible animate-in fade-in duration-300"
       >
-        <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-3 backdrop-blur-none">
-          {/* Header Title */}
-          <div className="flex items-center justify-between pb-2 border-b border-white/10">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-2xl shrink-0">🏆</span>
-              <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black tracking-wide truncate">
-                {title}
-              </h2>
-            </div>
-            {startDate && (
-              <span className="text-[10px] text-yellow-300 font-bold bg-white/10 px-2 py-0.5 rounded-md border border-white/15 uppercase tracking-wider shrink-0">
-                Live Filter
-              </span>
-            )}
+        {/* Header Title (Clean Saweria yellow) */}
+        <div className="flex items-center justify-between pb-1 overflow-visible">
+          <div className="flex items-center gap-2">
+            <span className="text-2xl">🏆</span>
+            <h2 className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
+              {title}
+            </h2>
           </div>
-
-          {/* List of Top Donors */}
-          {topDonors.length === 0 ? (
-            <div className="text-gray-300 text-sm font-bold py-3 text-center">
-              {isLoading ? "Memuat data donatur..." : "Belum ada donasi tercatat"}
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              {topDonors.map((donor, idx) => (
-                <div
-                  key={donor.name + idx}
-                  className="flex items-center justify-between px-3 py-2 rounded-xl bg-white/5 border border-white/10 hover:border-yellow-400/40 transition-all duration-300"
-                >
-                  {/* Rank & Name (Crystal-sharp text without blurry stroke) */}
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-base shrink-0 font-black">
-                      {getCrownOrMedal(idx)}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-white text-sm md:text-base font-black truncate drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                        {donor.name}
-                      </p>
-                      {donor.count > 1 && (
-                        <p className="text-[11px] text-yellow-300 font-bold">
-                          {donor.count}x donasi
-                        </p>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Amount (Crystal-sharp Gold Text) */}
-                  <div className="text-right shrink-0 ml-2">
-                    <span className="text-yellow-400 text-sm md:text-base font-black tracking-tight drop-shadow-[0_1px_2px_rgba(0,0,0,0.9)]">
-                      Rp {new Intl.NumberFormat("id-ID").format(donor.totalAmount)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
+          {startDate && (
+            <span className="text-[11px] text-yellow-300 font-bold bg-black/60 px-2 py-0.5 rounded-md border border-black uppercase tracking-wider">
+              Filtered
+            </span>
           )}
         </div>
+
+        {/* List of Top Donors */}
+        {topDonors.length === 0 ? (
+          <div className="text-white font-bold text-sm py-2 [text-shadow:1px_1px_0_#000]">
+            {isLoading ? "Memuat data donatur..." : "Belum ada donasi tercatat"}
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {topDonors.map((donor, idx) => (
+              <div
+                key={donor.name + idx}
+                className="flex items-center justify-between px-3.5 py-2.5 rounded-xl bg-black/75 border border-black shadow-md transition-all duration-300"
+              >
+                {/* Rank & Name (Crystal-sharp text with crisp outline, zero blur) */}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className="text-base shrink-0 font-black">
+                    {getCrownOrMedal(idx)}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-white text-sm md:text-base font-black truncate [text-shadow:1px_1px_0_#000,-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000]">
+                      {donor.name}
+                    </p>
+                    {donor.count > 1 && (
+                      <p className="text-[11px] text-yellow-300 font-bold">
+                        {donor.count}x donasi
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Amount (Crystal-sharp Gold Text with crisp outline, zero blur) */}
+                <div className="text-right shrink-0 ml-2">
+                  <span className="text-amber-400 text-sm md:text-base font-black [text-shadow:1px_1px_0_#000,-1px_-1px_0_#000,1px_-1px_0_#000,-1px_1px_0_#000]">
+                    Rp {new Intl.NumberFormat("id-ID").format(donor.totalAmount)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

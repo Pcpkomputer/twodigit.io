@@ -20,9 +20,9 @@ function MilestoneOverlayContent() {
   const title = searchParams.get("title") || "Donation Goal";
   const position = searchParams.get("position") || "top-center";
 
-  // Scale factor: defaults to 0.75 (optimal for 1280x720) or 1.0
+  // Scale factor: defaults to 1.0 (Full 100% native crisp size)
   const rawScale = searchParams.get("scale");
-  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 0.75)) : 0.75;
+  const scale = rawScale ? Math.max(0.4, Math.min(1.5, parseFloat(rawScale) || 1.0)) : 1.0;
 
   const [milestone, setMilestone] = useState<MilestoneData>({
     title,

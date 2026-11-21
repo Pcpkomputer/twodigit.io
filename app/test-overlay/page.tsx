@@ -914,6 +914,8 @@ export default function TestOverlayPage() {
                       <option value="bottom-center">Bawah Tengah</option>
                       <option value="top-left">Kiri Atas</option>
                       <option value="top-right">Kanan Atas</option>
+                      <option value="bottom-left">Kiri Bawah</option>
+                      <option value="bottom-right">Kanan Bawah</option>
                     </select>
                   </div>
 
@@ -936,9 +938,11 @@ export default function TestOverlayPage() {
                     >
                       <option value="bottom-left">Kiri Bawah (Standar - Rekomendasi)</option>
                       <option value="bottom-right">Kanan Bawah</option>
+                      <option value="top-center">Atas Tengah</option>
+                      <option value="bottom-center">Bawah Tengah</option>
                       <option value="top-left">Kiri Atas</option>
                       <option value="top-right">Kanan Atas</option>
-                      <option value="bottom-center">Bawah Tengah</option>
+                      <option value="center">Tengah Layar</option>
                     </select>
                   </div>
 
@@ -961,9 +965,11 @@ export default function TestOverlayPage() {
                     >
                       <option value="bottom-left">Kiri Bawah (Standar - Rekomendasi)</option>
                       <option value="bottom-right">Kanan Bawah</option>
+                      <option value="top-center">Atas Tengah</option>
+                      <option value="bottom-center">Bawah Tengah</option>
                       <option value="top-left">Kiri Atas</option>
                       <option value="top-right">Kanan Atas</option>
-                      <option value="bottom-center">Bawah Tengah</option>
+                      <option value="center">Tengah Layar</option>
                     </select>
                   </div>
 
@@ -986,6 +992,8 @@ export default function TestOverlayPage() {
                     >
                       <option value="bottom-right">Kanan Bawah (Standar - Rekomendasi)</option>
                       <option value="bottom-left">Kiri Bawah</option>
+                      <option value="top-center">Atas Tengah</option>
+                      <option value="bottom-center">Bawah Tengah</option>
                       <option value="top-right">Kanan Atas</option>
                       <option value="top-left">Kiri Atas</option>
                       <option value="center">Tengah Layar</option>
@@ -1011,8 +1019,11 @@ export default function TestOverlayPage() {
                     >
                       <option value="top-left">Kiri Atas (Standar - Rekomendasi)</option>
                       <option value="top-right">Kanan Atas</option>
+                      <option value="top-center">Atas Tengah</option>
+                      <option value="bottom-center">Bawah Tengah</option>
                       <option value="bottom-left">Kiri Bawah</option>
                       <option value="bottom-right">Kanan Bawah</option>
+                      <option value="center">Tengah Layar</option>
                     </select>
                   </div>
                 </div>
@@ -1069,7 +1080,11 @@ export default function TestOverlayPage() {
                           ? "bottom-2 left-1/2 -translate-x-1/2"
                           : bundleAlertPos === "top-left"
                           ? "top-2 left-2"
-                          : "top-2 right-2"
+                          : bundleAlertPos === "top-right"
+                          ? "top-2 right-2"
+                          : bundleAlertPos === "bottom-right"
+                          ? "bottom-2 right-2"
+                          : "bottom-2 left-2"
                       }`}
                     >
                       📢 Alert
@@ -1088,7 +1103,11 @@ export default function TestOverlayPage() {
                           ? "top-2 left-2"
                           : bundleEventsPos === "top-right"
                           ? "top-2 right-2"
-                          : "bottom-2 left-1/2 -translate-x-1/2"
+                          : bundleEventsPos === "top-center"
+                          ? "top-2 left-1/2 -translate-x-1/2"
+                          : bundleEventsPos === "bottom-center"
+                          ? "bottom-2 left-1/2 -translate-x-1/2"
+                          : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
                       }`}
                     >
                       💬 Sapaan &amp; Event
@@ -1107,7 +1126,11 @@ export default function TestOverlayPage() {
                           ? "top-7 left-2"
                           : bundleChatPos === "top-right"
                           ? "top-7 right-2"
-                          : "bottom-7 left-1/2 -translate-x-1/2"
+                          : bundleChatPos === "top-center"
+                          ? "top-7 left-1/2 -translate-x-1/2"
+                          : bundleChatPos === "bottom-center"
+                          ? "bottom-7 left-1/2 -translate-x-1/2"
+                          : "top-[60%] left-1/2 -translate-x-1/2 -translate-y-1/2"
                       }`}
                     >
                       🎙️ Host Chat
@@ -1126,6 +1149,10 @@ export default function TestOverlayPage() {
                           ? "top-2 right-2"
                           : bundleSfxPos === "top-left"
                           ? "top-2 left-2"
+                          : bundleSfxPos === "top-center"
+                          ? "top-2 left-1/2 -translate-x-1/2"
+                          : bundleSfxPos === "bottom-center"
+                          ? "bottom-2 left-1/2 -translate-x-1/2"
                           : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
                       }`}
                     >
@@ -1141,9 +1168,15 @@ export default function TestOverlayPage() {
                           ? "top-2 left-2"
                           : bundlePollPos === "top-right"
                           ? "top-2 right-2"
+                          : bundlePollPos === "top-center"
+                          ? "top-2 left-1/2 -translate-x-1/2"
+                          : bundlePollPos === "bottom-center"
+                          ? "bottom-2 left-1/2 -translate-x-1/2"
                           : bundlePollPos === "bottom-left"
                           ? "bottom-2 left-2"
-                          : "bottom-2 right-2"
+                          : bundlePollPos === "bottom-right"
+                          ? "bottom-2 right-2"
+                          : "top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
                       }`}
                     >
                       📊 Voting

@@ -643,7 +643,7 @@ function BundleOverlayContent() {
   const videoId = currentAlert ? getYouTubeVideoId(currentAlert.mediaUrl) : null;
 
   return (
-    <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden select-none font-sans pointer-events-none">
+    <div className="fixed inset-0 w-screen h-screen bg-transparent overflow-hidden select-none font-sans pointer-events-none antialiased subpixel-antialiased [text-rendering:optimizeLegibility]">
       {/* Audio Unlock Notification (Exact matching individual overlay) */}
       {!audioUnlocked && (
         <div
@@ -669,11 +669,7 @@ function BundleOverlayContent() {
           )}`}
         >
           <div
-            style={{
-              willChange: "transform, opacity",
-              transform: `scale(${scale}) translateZ(0)`,
-              transformOrigin: getTransformOrigin(alertPos),
-            }}
+            style={scale !== 1 ? { zoom: scale } : undefined}
             className="animate-in fade-in duration-300 max-w-2xl w-full flex flex-col items-center text-center overflow-visible"
           >
             {/* Saweria Style Floating Alert: Clean vector stroke, no clipped box */}
@@ -723,11 +719,7 @@ function BundleOverlayContent() {
           )}`}
         >
           <div
-            style={{
-              willChange: "transform, opacity",
-              transform: `scale(${scale}) translateZ(0)`,
-              transformOrigin: getTransformOrigin(eventsPos),
-            }}
+            style={scale !== 1 ? { zoom: scale } : undefined}
             className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2"
           >
             {/* Saweria Style Floating Event Card */}
@@ -769,11 +761,7 @@ function BundleOverlayContent() {
           )}`}
         >
           <div
-            style={{
-              willChange: "transform, opacity",
-              transform: `scale(${scale}) translateZ(0)`,
-              transformOrigin: getTransformOrigin(chatPos),
-            }}
+            style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
               setCurrentChat(null);
               stopTTSAudio();
@@ -840,11 +828,7 @@ function BundleOverlayContent() {
           )}`}
         >
           <div
-            style={{
-              willChange: "transform, opacity",
-              transform: `scale(${scale}) translateZ(0)`,
-              transformOrigin: getTransformOrigin(sfxPos),
-            }}
+            style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
               setCurrentSfx(null);
               stopSfxAudio();
@@ -906,11 +890,7 @@ function BundleOverlayContent() {
             )}`}
           >
             <div
-              style={{
-                willChange: "transform, opacity",
-                transform: `scale(${scale}) translateZ(0)`,
-                transformOrigin: getTransformOrigin(pollPos),
-              }}
+              style={scale !== 1 ? { zoom: scale } : undefined}
               className="w-full max-w-md animate-in fade-in duration-300 flex flex-col gap-3"
             >
               {/* Main Poll Card */}

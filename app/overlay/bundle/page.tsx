@@ -134,7 +134,6 @@ function BundleOverlayContent() {
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
   const [chatQueue, setChatQueue] = useState<InteractiveChatMessage[]>([]);
   const [isChatSpeaking, setIsChatSpeaking] = useState<boolean>(false);
-  const [chatDisplayDuration, setChatDisplayDuration] = useState<number>(6000);
 
   // State: SFX
   const [currentSfx, setCurrentSfx] = useState<SfxEvent | null>(null);
@@ -145,9 +144,14 @@ function BundleOverlayContent() {
   // Audio & Hardware Lock State
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
-  // Zero-Leak Persistent Audio Players (Reused across alerts, never allocated repeatedly)
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Dedicated Zero-Collision Persistent Audio Players (Isolated per notification type)
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+  const eventAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Direct DOM ref for synchronized, pixel-perfect countdown bar animation
+  const chatProgressBarRef = useRef<HTMLDivElement | null>(null);
 
   // Dismiss timers
   const alertDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -171,15 +175,41 @@ function BundleOverlayContent() {
     return false;
   };
 
-  // Helper: Stop TTS Audio cleanly
-  const stopTTSAudio = () => {
-    if (ttsAudioRef.current) {
+  // Helper: Stop Alert Audio cleanly
+  const stopAlertAudio = () => {
+    if (alertAudioRef.current) {
       try {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current.removeAttribute("src");
-        ttsAudioRef.current.load();
-        ttsAudioRef.current.onended = null;
-        ttsAudioRef.current.onerror = null;
+        alertAudioRef.current.pause();
+        alertAudioRef.current.removeAttribute("src");
+        alertAudioRef.current.load();
+        alertAudioRef.current.onended = null;
+        alertAudioRef.current.onerror = null;
+      } catch {}
+    }
+  };
+
+  // Helper: Stop Event TTS Audio cleanly
+  const stopEventAudio = () => {
+    if (eventAudioRef.current) {
+      try {
+        eventAudioRef.current.pause();
+        eventAudioRef.current.removeAttribute("src");
+        eventAudioRef.current.load();
+        eventAudioRef.current.onended = null;
+        eventAudioRef.current.onerror = null;
+      } catch {}
+    }
+  };
+
+  // Helper: Stop Chat TTS Audio cleanly
+  const stopChatAudio = () => {
+    if (chatAudioRef.current) {
+      try {
+        chatAudioRef.current.pause();
+        chatAudioRef.current.removeAttribute("src");
+        chatAudioRef.current.load();
+        chatAudioRef.current.onended = null;
+        chatAudioRef.current.onerror = null;
       } catch {}
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -204,10 +234,18 @@ function BundleOverlayContent() {
 
   // Unlock Audio on Mount
   useEffect(() => {
-    // Instantiate persistent audio elements
-    const ttsAudio = new Audio();
-    ttsAudio.crossOrigin = "anonymous";
-    ttsAudioRef.current = ttsAudio;
+    // Instantiate persistent isolated audio elements
+    const alertAudio = new Audio();
+    alertAudio.crossOrigin = "anonymous";
+    alertAudioRef.current = alertAudio;
+
+    const eventAudio = new Audio();
+    eventAudio.crossOrigin = "anonymous";
+    eventAudioRef.current = eventAudio;
+
+    const chatAudio = new Audio();
+    chatAudio.crossOrigin = "anonymous";
+    chatAudioRef.current = chatAudio;
 
     const sfxAudio = new Audio();
     sfxAudio.crossOrigin = "anonymous";
@@ -228,7 +266,9 @@ function BundleOverlayContent() {
     window.addEventListener("click", unlock);
     return () => {
       window.removeEventListener("click", unlock);
-      stopTTSAudio();
+      stopAlertAudio();
+      stopEventAudio();
+      stopChatAudio();
       stopSfxAudio();
     };
   }, []);
@@ -451,13 +491,13 @@ function BundleOverlayContent() {
     const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
     alertDismissTimerRef.current = setTimeout(() => {
       setCurrentAlert(null);
-      stopTTSAudio();
+      stopAlertAudio();
     }, safetyTimeout);
 
     // Play TTS via persistent audio element
     if (speechText) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = alertAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
@@ -466,7 +506,7 @@ function BundleOverlayContent() {
               if (alertDismissTimerRef.current) clearTimeout(alertDismissTimerRef.current);
               alertDismissTimerRef.current = setTimeout(() => {
                 setCurrentAlert(null);
-                stopTTSAudio();
+                stopAlertAudio();
               }, 2000);
             }
           };
@@ -489,7 +529,7 @@ function BundleOverlayContent() {
     }
   }, [currentEvent, eventQueue]);
 
-  // TikTok Live Events TTS Player & Dismiss
+  // TikTok Live Events TTS Player & Bulletproof Auto-Dismiss
   useEffect(() => {
     if (!currentEvent || isPreview) return;
 
@@ -497,26 +537,61 @@ function BundleOverlayContent() {
       clearTimeout(eventDismissTimerRef.current);
     }
 
-    eventDismissTimerRef.current = setTimeout(() => {
+    const dismissEvent = () => {
+      if (eventDismissTimerRef.current) {
+        clearTimeout(eventDismissTimerRef.current);
+        eventDismissTimerRef.current = null;
+      }
       setCurrentEvent(null);
-      stopTTSAudio();
-    }, 12000);
+      stopEventAudio();
+    };
+
+    // Unbreakable safety watchdog timer (guarantees dismiss even if audio fails or double event collides)
+    eventDismissTimerRef.current = setTimeout(dismissEvent, 9000);
 
     if (currentEvent.speechText) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = eventAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(currentEvent.speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
+
+          // When exact audio length is known, adapt dismiss time accurately
+          audio.onloadedmetadata = () => {
+            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+              const audioMs = Math.round(audio.duration * 1000);
+              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+              eventDismissTimerRef.current = setTimeout(dismissEvent, audioMs + 1800);
+            }
+          };
+
           audio.onended = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => {
-              setCurrentEvent(null);
-            }, 1500);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 1200);
           };
-          audio.play().catch(() => {});
+
+          audio.onerror = () => {
+            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+          };
+
+          audio.onstalled = () => {
+            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 2500);
+          };
+
+          audio.play().catch(() => {
+            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 3500);
+          });
         }
-      } catch {}
+      } catch {
+        if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+        eventDismissTimerRef.current = setTimeout(dismissEvent, 3500);
+      }
+    } else {
+      if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+      eventDismissTimerRef.current = setTimeout(dismissEvent, 4000);
     }
 
     return () => {
@@ -533,7 +608,7 @@ function BundleOverlayContent() {
     }
   }, [currentChat, chatQueue]);
 
-  // Interactive Host Chat TTS Player & Dismiss
+  // Interactive Host Chat TTS Player & Synchronized Countdown Bar Dismissal
   useEffect(() => {
     if (!currentChat || isPreview) return;
 
@@ -545,36 +620,100 @@ function BundleOverlayContent() {
       25000,
       Math.max(5000, Math.ceil(currentChat.message.length * 115) + 3500)
     );
-    setChatDisplayDuration(estimatedDuration);
     setIsChatSpeaking(true);
 
-    chatDismissTimerRef.current = setTimeout(() => {
-      setCurrentChat(null);
+    // Initial reset of progress bar to 100%
+    if (chatProgressBarRef.current) {
+      chatProgressBarRef.current.style.transition = "none";
+      chatProgressBarRef.current.style.width = "100%";
+      void chatProgressBarRef.current.offsetWidth; // Force synchronous reflow
+      chatProgressBarRef.current.style.transition = `width ${estimatedDuration}ms linear`;
+      chatProgressBarRef.current.style.width = "0%";
+    }
+
+    const dismissChat = () => {
+      if (chatDismissTimerRef.current) {
+        clearTimeout(chatDismissTimerRef.current);
+        chatDismissTimerRef.current = null;
+      }
       setIsChatSpeaking(false);
-      stopTTSAudio();
-    }, estimatedDuration);
+      stopChatAudio();
+      setCurrentChat(null);
+    };
+
+    // Watchdog fallback timer
+    chatDismissTimerRef.current = setTimeout(dismissChat, estimatedDuration);
 
     if (currentChat.message) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = chatAudioRef.current;
         if (audio) {
           const voiceParam = currentChat.voice ? `&voice=${encodeURIComponent(currentChat.voice)}` : "&voice=schoolgirl";
           audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
           audio.volume = 1.0;
+
+          // When audio length is known, synchronize the progress bar and timer to reach exactly 0%
+          audio.onloadedmetadata = () => {
+            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+              const audioMs = Math.round(audio.duration * 1000);
+              const postSpeechDelay = 1500;
+              const totalRemainingMs = audioMs + postSpeechDelay;
+
+              if (chatProgressBarRef.current) {
+                chatProgressBarRef.current.style.transition = `width ${totalRemainingMs}ms linear`;
+                chatProgressBarRef.current.style.width = "0%";
+              }
+
+              if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+              chatDismissTimerRef.current = setTimeout(dismissChat, totalRemainingMs);
+            }
+          };
+
           audio.onended = () => {
             setIsChatSpeaking(false);
+            // Speech finished cleanly: smoothly glide remaining bar to 0% over 1.5s
+            if (chatProgressBarRef.current) {
+              chatProgressBarRef.current.style.transition = "width 1500ms linear";
+              chatProgressBarRef.current.style.width = "0%";
+            }
             if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-            chatDismissTimerRef.current = setTimeout(() => {
-              setCurrentChat(null);
-              stopTTSAudio();
-            }, 1500);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 1500);
           };
+
+          audio.onerror = () => {
+            setIsChatSpeaking(false);
+            if (chatProgressBarRef.current) {
+              chatProgressBarRef.current.style.transition = "width 2000ms linear";
+              chatProgressBarRef.current.style.width = "0%";
+            }
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 2000);
+          };
+
+          audio.onstalled = () => {
+            setIsChatSpeaking(false);
+            if (chatProgressBarRef.current) {
+              chatProgressBarRef.current.style.transition = "width 2500ms linear";
+              chatProgressBarRef.current.style.width = "0%";
+            }
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 2500);
+          };
+
           audio.play().catch(() => {
             setIsChatSpeaking(false);
+            if (chatProgressBarRef.current) {
+              chatProgressBarRef.current.style.transition = "width 3000ms linear";
+              chatProgressBarRef.current.style.width = "0%";
+            }
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 3000);
           });
         }
       } catch {
         setIsChatSpeaking(false);
+        if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+        chatDismissTimerRef.current = setTimeout(dismissChat, 3000);
       }
     }
 
@@ -722,7 +861,13 @@ function BundleOverlayContent() {
         >
           <div
             style={scale !== 1 ? { zoom: scale } : undefined}
-            className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2"
+            onClick={() => {
+              setCurrentEvent(null);
+              stopEventAudio();
+            }}
+            className={`w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
+              eventsPos === chatPos && currentChat ? "mb-44 md:mb-48" : ""
+            }`}
           >
             {/* Saweria Style Floating Event Card */}
             <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
@@ -766,7 +911,7 @@ function BundleOverlayContent() {
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
               setCurrentChat(null);
-              stopTTSAudio();
+              stopChatAudio();
             }}
             className="transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-5"
           >
@@ -807,14 +952,12 @@ function BundleOverlayContent() {
                 </p>
               </div>
 
-              {/* Visual Lifetime Countdown Bar */}
+              {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
               <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
                 <div
-                  key={`${currentChat.id}-${chatDisplayDuration}`}
+                  ref={chatProgressBarRef}
                   className="bg-yellow-400 h-full origin-left rounded-full"
-                  style={{
-                    animation: `shrinkWidth ${chatDisplayDuration}ms linear forwards`,
-                  }}
+                  style={{ width: "100%" }}
                 />
               </div>
             </div>

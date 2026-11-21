@@ -110,10 +110,16 @@ function TikTokEventsOverlayContent() {
       clearTimeout(dismissTimeoutRef.current);
     }
 
-    // Safety fallback timer (12s max) in case audio fails
-    dismissTimeoutRef.current = setTimeout(() => {
+    const dismissEvent = () => {
+      if (dismissTimeoutRef.current) {
+        clearTimeout(dismissTimeoutRef.current);
+        dismissTimeoutRef.current = null;
+      }
       setCurrentEvent(null);
-    }, 12000);
+    };
+
+    // Safety fallback timer (8s max) in case audio fails or double event collides
+    dismissTimeoutRef.current = setTimeout(dismissEvent, 8000);
 
     // Play TTS audio
     const playEventTTS = (text: string) => {
@@ -128,13 +134,28 @@ function TikTokEventsOverlayContent() {
         audio.pause();
         audio.src = audioUrl;
         audio.volume = 1.0;
-        audio.load();
+
+        audio.onloadedmetadata = () => {
+          if (audio && audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+            const audioMs = Math.round(audio.duration * 1000);
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+            dismissTimeoutRef.current = setTimeout(dismissEvent, audioMs + 1800);
+          }
+        };
 
         audio.onended = () => {
           if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => {
-            setCurrentEvent(null);
-          }, 1500);
+          dismissTimeoutRef.current = setTimeout(dismissEvent, 1200);
+        };
+
+        audio.onerror = () => {
+          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+          dismissTimeoutRef.current = setTimeout(dismissEvent, 2000);
+        };
+
+        audio.onstalled = () => {
+          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+          dismissTimeoutRef.current = setTimeout(dismissEvent, 2500);
         };
 
         const playPromise = audio.play();
@@ -149,24 +170,31 @@ function TikTokEventsOverlayContent() {
                 utterance.rate = 1.05;
                 utterance.onend = () => {
                   if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                  dismissTimeoutRef.current = setTimeout(() => {
-                    setCurrentEvent(null);
-                  }, 1500);
+                  dismissTimeoutRef.current = setTimeout(dismissEvent, 1200);
                 };
                 window.speechSynthesis.speak(utterance);
               } catch {
-                // Fallback handled by safety timeout
+                if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+                dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
               }
+            } else {
+              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+              dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
             }
           });
         }
       } catch (e) {
         console.error("TTS trigger error:", e);
+        if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+        dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
       }
     };
 
     if (currentEvent.speechText) {
       playEventTTS(currentEvent.speechText);
+    } else {
+      if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = setTimeout(dismissEvent, 4000);
     }
 
     return () => {
@@ -218,7 +246,8 @@ function TikTokEventsOverlayContent() {
     >
       <div
         style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
-        className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2"
+        onClick={() => setCurrentEvent(null)}
+        className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer"
       >
         {/* Saweria Style Floating Event Card */}
         <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">

@@ -28,6 +28,7 @@ function ChatOverlayContent() {
   const [displayDuration, setDisplayDuration] = useState<number>(5000);
 
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const progressBarRef = useRef<HTMLDivElement | null>(null);
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -267,12 +268,20 @@ function ChatOverlayContent() {
     const speechText = currentChat.message;
 
     // Baseline estimated duration based on text length (~115ms per character + 3500ms safety buffer)
-    // Min 5s, Max 30s. E.g. for 114 chars: 114 * 115 + 3500 = ~16.6s
     const estimatedDuration = Math.min(
       30000,
       Math.max(5000, Math.ceil(speechText.length * 115) + 3500)
     );
     setDisplayDuration(estimatedDuration);
+
+    // Initial reset of progress bar to 100%
+    if (progressBarRef.current) {
+      progressBarRef.current.style.transition = "none";
+      progressBarRef.current.style.width = "100%";
+      void progressBarRef.current.offsetWidth; // Force synchronous reflow
+      progressBarRef.current.style.transition = `width ${estimatedDuration}ms linear`;
+      progressBarRef.current.style.width = "0%";
+    }
 
     // 1. HARD WATCHDOG TIMER: Always guarantees the popup closes even under heavy load / OBS background freeze
     watchdogTimerRef.current = setTimeout(() => {
@@ -285,25 +294,34 @@ function ChatOverlayContent() {
       speechText,
       // onEnded:
       () => {
-        // Audio finished cleanly: give a short 1s - 1.8s pause to let viewers read, then close
-        const postSpeechDelay = queue.length > 0 ? 900 : 1800;
+        // Audio finished cleanly: smoothly glide remaining bar to 0% over 1.5s
+        const postSpeechDelay = 1500;
+        if (progressBarRef.current) {
+          progressBarRef.current.style.transition = `width ${postSpeechDelay}ms linear`;
+          progressBarRef.current.style.width = "0%";
+        }
         dismissTimerRef.current = setTimeout(() => {
           dismissChat();
         }, postSpeechDelay);
       },
       // onDurationKnown:
       (audioMs) => {
-        // Update countdown bar to match actual audio duration + reading buffer
-        const totalDuration = audioMs + (queue.length > 0 ? 1000 : 2000);
+        // Update countdown bar to match actual audio duration + 1.5s reading buffer
+        const totalDuration = audioMs + 1500;
         setDisplayDuration(totalDuration);
 
-        // Adjust watchdog so it generously covers full speech + 3.5s safety margin
+        if (progressBarRef.current) {
+          progressBarRef.current.style.transition = `width ${totalDuration}ms linear`;
+          progressBarRef.current.style.width = "0%";
+        }
+
+        // Adjust watchdog so it generously covers full speech + 3s safety margin
         if (watchdogTimerRef.current) {
           clearTimeout(watchdogTimerRef.current);
         }
         watchdogTimerRef.current = setTimeout(() => {
           dismissChat();
-        }, audioMs + 3500);
+        }, totalDuration + 2000);
       },
       currentChat.voice || "schoolgirl"
     );
@@ -380,14 +398,12 @@ function ChatOverlayContent() {
               </p>
             </div>
 
-            {/* Visual Lifetime Countdown Bar (Provides clear feedback that popup is active and timing down) */}
+            {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
             <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
               <div
-                key={`${currentChat.id}-${displayDuration}`}
+                ref={progressBarRef}
                 className="bg-yellow-400 h-full origin-left rounded-full"
-                style={{
-                  animation: `shrinkWidth ${displayDuration}ms linear forwards`,
-                }}
+                style={{ width: "100%" }}
               />
             </div>
           </div>

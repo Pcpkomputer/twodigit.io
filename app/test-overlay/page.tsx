@@ -78,16 +78,20 @@ export default function TestOverlayPage() {
   // Bundle All-in-One Super Overlay Layout Configurator State
   const [bundleAlertPos, setBundleAlertPos] = useState<string>("center");
   const [bundleEventsPos, setBundleEventsPos] = useState<string>("bottom-left");
+  const [bundleChatPos, setBundleChatPos] = useState<string>("bottom-left");
   const [bundleSfxPos, setBundleSfxPos] = useState<string>("bottom-right");
   const [bundlePollPos, setBundlePollPos] = useState<string>("top-left");
+  const [bundleScale, setBundleScale] = useState<string>("0.75");
   const [bundleModules, setBundleModules] = useState<{
     alert: boolean;
     events: boolean;
+    chat: boolean;
     sfx: boolean;
     poll: boolean;
   }>({
     alert: true,
     events: true,
+    chat: true,
     sfx: true,
     poll: true,
   });
@@ -101,8 +105,10 @@ export default function TestOverlayPage() {
     const params = new URLSearchParams({
       alertPos: bundleAlertPos,
       eventsPos: bundleEventsPos,
+      chatPos: bundleChatPos,
       sfxPos: bundleSfxPos,
       pollPos: bundlePollPos,
+      scale: bundleScale,
       modules: activeMods || "none",
     });
 
@@ -861,6 +867,30 @@ export default function TestOverlayPage() {
                   <span className="text-[11px] text-gray-400">Posisi bebas, tidak saling tumpuk</span>
                 </div>
 
+                {/* Resolution & Scale Setting */}
+                <div className="p-3.5 bg-indigo-950/40 border border-indigo-500/30 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                  <div>
+                    <label className="text-xs font-bold text-indigo-300 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[16px]">aspect_ratio</span>
+                      Resolusi Layar Live &amp; Skala Ukuran Overlay
+                    </label>
+                    <p className="text-[11px] text-gray-400 mt-0.5">
+                      Pilih skala yang pas dengan kanvas TikTok Live Studio agar tidak kebesaran.
+                    </p>
+                  </div>
+                  <select
+                    value={bundleScale}
+                    onChange={(e) => setBundleScale(e.target.value)}
+                    className="w-full sm:w-auto h-9 px-3 rounded-lg bg-gray-900 border border-indigo-400/40 text-xs font-semibold text-yellow-400 outline-none focus:border-yellow-400 cursor-pointer"
+                  >
+                    <option value="0.75">1280x720 (720p HD) - Skala 75% ⭐ Pas untuk Live PS5</option>
+                    <option value="0.70">1280x720 (Compact) - Skala 70%</option>
+                    <option value="0.65">1280x720 (Mini) - Skala 65%</option>
+                    <option value="0.85">Resolusi Sedang - Skala 85%</option>
+                    <option value="1.0">1920x1080 (1080p FHD) - Skala 100% Penuh</option>
+                  </select>
+                </div>
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {/* Alert Position */}
                   <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
@@ -890,7 +920,7 @@ export default function TestOverlayPage() {
                   {/* Events Position */}
                   <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
                     <label className="text-xs font-bold text-pink-400 flex items-center justify-between">
-                      <span>✨ TikTok Events (Sapaan/Chat)</span>
+                      <span>✨ TikTok Events (Sapaan/TTS)</span>
                       <input
                         type="checkbox"
                         checked={bundleModules.events}
@@ -903,6 +933,31 @@ export default function TestOverlayPage() {
                       disabled={!bundleModules.events}
                       onChange={(e) => setBundleEventsPos(e.target.value)}
                       className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-pink-400 disabled:opacity-40"
+                    >
+                      <option value="bottom-left">Kiri Bawah (Standar - Rekomendasi)</option>
+                      <option value="bottom-right">Kanan Bawah</option>
+                      <option value="top-left">Kiri Atas</option>
+                      <option value="top-right">Kanan Atas</option>
+                      <option value="bottom-center">Bawah Tengah</option>
+                    </select>
+                  </div>
+
+                  {/* Host Interactive Chat Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5">
+                    <label className="text-xs font-bold text-emerald-400 flex items-center justify-between">
+                      <span>🎙️ Chat Streamer / Host</span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.chat}
+                        onChange={(e) => setBundleModules({ ...bundleModules, chat: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundleChatPos}
+                      disabled={!bundleModules.chat}
+                      onChange={(e) => setBundleChatPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-emerald-400 disabled:opacity-40"
                     >
                       <option value="bottom-left">Kiri Bawah (Standar - Rekomendasi)</option>
                       <option value="bottom-right">Kanan Bawah</option>
@@ -998,8 +1053,8 @@ export default function TestOverlayPage() {
                 {/* Mini 16:9 Monitor Frame */}
                 <div className="aspect-video w-full bg-gray-950 rounded-xl border-2 border-white/15 relative overflow-hidden flex items-center justify-center p-2 shadow-inner">
                   {/* Subtle Grid Watermark */}
-                  <span className="text-[10px] text-gray-800 font-mono select-none pointer-events-none uppercase tracking-wider">
-                    Layar Stream 1920x1080
+                  <span className="text-[10px] text-gray-700 font-mono select-none pointer-events-none uppercase tracking-wider">
+                    Kanvas Live 1280x720 / 1080p (Skala {Math.round(parseFloat(bundleScale) * 100)}%)
                   </span>
 
                   {/* Mini Alert Chip */}
@@ -1036,7 +1091,26 @@ export default function TestOverlayPage() {
                           : "bottom-2 left-1/2 -translate-x-1/2"
                       }`}
                     >
-                      💬 Sapaan &amp; Chat
+                      💬 Sapaan &amp; Event
+                    </span>
+                  )}
+
+                  {/* Mini Host Chat Chip */}
+                  {bundleModules.chat && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-emerald-500 text-white font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundleChatPos === "bottom-left"
+                          ? "bottom-7 left-2"
+                          : bundleChatPos === "bottom-right"
+                          ? "bottom-7 right-2"
+                          : bundleChatPos === "top-left"
+                          ? "top-7 left-2"
+                          : bundleChatPos === "top-right"
+                          ? "top-7 right-2"
+                          : "bottom-7 left-1/2 -translate-x-1/2"
+                      }`}
+                    >
+                      🎙️ Host Chat
                     </span>
                   )}
 
@@ -1077,8 +1151,13 @@ export default function TestOverlayPage() {
                   )}
                 </div>
 
-                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-gray-300">
-                  <strong className="text-white">💡 Tips TikTok Live Studio:</strong> Tambahkan 1 Browser Source dengan URL di atas, set resolusi <strong>Width: 1920, Height: 1080</strong> (atau 1080x1920 portrait). Tidak perlu menambah browser source lain lagi!
+                <div className="p-2.5 rounded-lg bg-white/5 border border-white/10 text-[11px] text-gray-300 space-y-1">
+                  <div>
+                    <strong className="text-white">💡 Tips TikTok Live Studio (1280x720):</strong> Tambahkan 1 Browser Source dengan URL di atas. Set resolusi <strong>Width: 1280, Height: 720</strong> (atau 1920x1080 jika streaming FHD).
+                  </div>
+                  <div className="text-indigo-300">
+                    Skala otomatis menyesuaikan <strong>75%</strong> sehingga proporsional dan tidak menutupi gameplay PS5!
+                  </div>
                 </div>
               </div>
             </div>

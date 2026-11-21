@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { toast } from "sonner";
 import Pusher from "pusher-js";
 import { SFX_CATALOG } from "@/lib/sfx";
+import { TikTokEventSettings, TikTokEventType } from "@/lib/tiktok-events";
 
 interface TestHistoryItem {
   id: string;
@@ -43,7 +44,7 @@ interface PollState {
 
 export default function TestOverlayPage() {
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "sfx" | "donation">("poll");
+  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "sfx" | "donation" | "tiktok-events">("poll");
   const [isTriggeringSfx, setIsTriggeringSfx] = useState<string | null>(null);
 
   // Auth state
@@ -52,6 +53,27 @@ export default function TestOverlayPage() {
   const [passwordInput, setPasswordInput] = useState<string>("");
   const [isLoggingIn, setIsLoggingIn] = useState<boolean>(false);
   const [showPassword, setShowPassword] = useState<boolean>(false);
+
+  // TikTok Live Events state
+  const [tiktokSettings, setTiktokSettings] = useState<TikTokEventSettings>({
+    enableJoin: true,
+    enableChat: true,
+    enableGift: true,
+    enableFollow: true,
+    enableShare: true,
+    enableTts: true,
+  });
+  const [isUpdatingSettings, setIsUpdatingSettings] = useState<boolean>(false);
+  const [eventsPosition, setEventsPosition] = useState<string>("bottom-left");
+
+  // Simulation state for TikTok Events
+  const [simEventType, setSimEventType] = useState<TikTokEventType>("join");
+  const [simUniqueId, setSimUniqueId] = useState<string>("budi_gaming");
+  const [simNickname, setSimNickname] = useState<string>("Budi Gaming");
+  const [simMessage, setSimMessage] = useState<string>("Halo bang, mantap live streamnya!");
+  const [simGiftName, setSimGiftName] = useState<string>("Mawar");
+  const [simGiftCount, setSimGiftCount] = useState<number>(5);
+  const [isSimulatingEvent, setIsSimulatingEvent] = useState<boolean>(false);
 
   // Donation Form state
   const [donorName, setDonorName] = useState<string>("Donatur Tester");
@@ -119,6 +141,7 @@ export default function TestOverlayPage() {
   useEffect(() => {
     if (isAuthenticated) {
       fetchActivePoll();
+      fetchTikTokSettings();
 
       // Realtime Pusher subscription for live poll updates
       const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY || "";
@@ -475,6 +498,89 @@ export default function TestOverlayPage() {
     toast.success(`URL ${label} berhasil disalin!`);
   };
 
+  // TikTok Live Events Handlers
+  const fetchTikTokSettings = async () => {
+    try {
+      const res = await fetch("/api/tiktok-events");
+      const data = await res.json();
+      if (res.ok && data.settings) {
+        setTiktokSettings(data.settings);
+      }
+    } catch (err) {
+      console.error("Failed to fetch TikTok settings", err);
+    }
+  };
+
+  const handleToggleSetting = async (key: keyof TikTokEventSettings) => {
+    const updatedVal = !tiktokSettings[key];
+    const newSettings = { ...tiktokSettings, [key]: updatedVal };
+    setTiktokSettings(newSettings);
+    setIsUpdatingSettings(true);
+    try {
+      const res = await fetch("/api/tiktok-events", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ [key]: updatedVal }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`Pengaturan '${key}' berhasil diperbarui!`);
+      } else {
+        toast.error(data.error || "Gagal mengubah pengaturan.");
+        setTiktokSettings(tiktokSettings);
+      }
+    } catch {
+      toast.error("Gagal terhubung ke server.");
+      setTiktokSettings(tiktokSettings);
+    } finally {
+      setIsUpdatingSettings(false);
+    }
+  };
+
+  const handleTriggerEventSim = async (
+    type: TikTokEventType,
+    customPayload?: Partial<{
+      nickname: string;
+      uniqueId: string;
+      message: string;
+      giftName: string;
+      giftCount: number;
+    }>
+  ) => {
+    setIsSimulatingEvent(true);
+    try {
+      const payload = {
+        eventType: type,
+        uniqueId: customPayload?.uniqueId || simUniqueId || "tester",
+        nickname: customPayload?.nickname || simNickname || "Tester Live",
+        message: customPayload?.message !== undefined ? customPayload.message : (type === "chat" ? simMessage : undefined),
+        giftName: customPayload?.giftName !== undefined ? customPayload.giftName : (type === "gift" ? simGiftName : undefined),
+        giftCount: customPayload?.giftCount !== undefined ? customPayload.giftCount : (type === "gift" ? simGiftCount : undefined),
+      };
+
+      const res = await fetch("/api/tiktok-events", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        if (data.ignored) {
+          toast.warning(`Event '${type}' diabaikan: ${data.reason}`);
+        } else {
+          toast.success(`✨ Event '${type}' terkirim ke overlay!`);
+        }
+      } else {
+        toast.error(data.error || "Gagal mengirim event simulasi.");
+      }
+    } catch {
+      toast.error("Gagal terhubung ke server.");
+    } finally {
+      setIsSimulatingEvent(false);
+    }
+  };
+
   // Loading state
   if (isCheckingAuth) {
     return (
@@ -598,6 +704,18 @@ export default function TestOverlayPage() {
         {/* Navigation Tabs */}
         <div className="flex items-center gap-2 mb-6 border-b border-gray-200 pb-3 overflow-x-auto">
           <button
+            onClick={() => setActiveTab("tiktok-events")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
+              activeTab === "tiktok-events"
+                ? "bg-primary text-white shadow-sm"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">waving_hand</span>
+            <span>✨ TikTok Events (Sapaan & Hadiah)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab("poll")}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
               activeTab === "poll"
@@ -655,7 +773,44 @@ export default function TestOverlayPage() {
             </h2>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3">
+            {/* TikTok Events Overlay Card */}
+            <div
+              className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
+                activeTab === "tiktok-events" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-xs text-gray-900 flex items-center gap-1">
+                    <span>✨ Live Events</span>
+                    <span className="text-[10px] bg-pink-500 text-white px-1.5 py-0.2 rounded font-black">
+                      TTS
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">Sapa join, chat, gift, follow</p>
+                </div>
+                <span className="text-[10px] bg-pink-100 text-pink-800 font-bold px-1.5 py-0.5 rounded">
+                  /overlay/events
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-200/60">
+                <a
+                  href={`/overlay/events?pos=${eventsPosition}&preview=1`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 text-center py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 transition"
+                >
+                  Preview ↗
+                </a>
+                <button
+                  onClick={() => copyToClipboard(`/overlay/events?pos=${eventsPosition}`, "Live Events")}
+                  className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
+                >
+                  Salin
+                </button>
+              </div>
+            </div>
             {/* Live Voting Card */}
             <div
               className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
@@ -1824,6 +1979,573 @@ export default function TestOverlayPage() {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: TIKTOK LIVE EVENTS & TTS */}
+        {activeTab === "tiktok-events" && (
+          <div className="flex flex-col gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Toggles & Simulators */}
+              <div className="lg:col-span-7 flex flex-col gap-6">
+                {/* Event Toggles Card */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-4 mb-5">
+                    <div>
+                      <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-primary text-[22px]">tune</span>
+                        Pengaturan & Sakelar Live Event
+                      </h2>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        Kontrol jenis event TikTok apa saja yang direspons dan dibacakan oleh TTS
+                      </p>
+                    </div>
+                    {isUpdatingSettings && (
+                      <span className="text-xs text-primary font-semibold animate-pulse flex items-center gap-1">
+                        <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+                        Menyimpan...
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-3.5">
+                    {/* Toggle: Sapa Join */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100/50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">👋</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Sapaan Penonton Join Stream</span>
+                            <span className="px-1.5 py-0.2 bg-blue-100 text-blue-800 text-[10px] font-bold rounded">
+                              Anti-Lag 6s
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Menyapa otomatis: <em>&ldquo;Halo [Nama], selamat datang di live stream!&rdquo;</em> (Deduplikasi per user)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableJoin")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableJoin ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableJoin ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Toggle: Bacakan Chat */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100/50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">💬</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Bacakan Komentar Chat</span>
+                            <span className="px-1.5 py-0.2 bg-green-100 text-green-800 text-[10px] font-bold rounded">
+                              TTS Natural
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Membacakan isi chat: <em>&ldquo;[Nama] berkata: [Komentar]&rdquo;</em> (Komentar vote &amp; SFX dipisah)
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableChat")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableChat ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableChat ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Toggle: Notifikasi Gift */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100/50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">🎁</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Notifikasi Hadiah / Gift</span>
+                            <span className="px-1.5 py-0.2 bg-yellow-100 text-yellow-800 text-[10px] font-bold rounded">
+                              Prioritas Tinggi
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Mengumumkan apresiasi gift: <em>&ldquo;Terima kasih [Nama] sudah mengirim [Hadiah] x[Qty]!&rdquo;</em>
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableGift")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableGift ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableGift ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Toggle: Follow */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100/50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">🔔</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Notifikasi Follow Baru</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Menyapa follower baru: <em>&ldquo;Terima kasih [Nama] sudah mem-follow stream ini!&rdquo;</em>
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableFollow")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableFollow ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableFollow ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Toggle: Share */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-gray-50 border border-gray-200/80 hover:bg-gray-100/50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">🚀</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Notifikasi Share Stream</span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Mengapresiasi: <em>&ldquo;Terima kasih [Nama] sudah membagikan live ini!&rdquo;</em>
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableShare")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableShare ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableShare ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {/* Toggle: TTS Audio */}
+                    <div className="flex items-center justify-between p-3.5 rounded-xl bg-indigo-50/60 border border-indigo-200/80 hover:bg-indigo-50 transition">
+                      <div className="flex items-start gap-3">
+                        <span className="text-2xl mt-0.5">🔊</span>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-xs text-gray-900">Aktifkan Suara Audio TTS</span>
+                            <span className="px-1.5 py-0.2 bg-indigo-100 text-indigo-800 text-[10px] font-bold rounded">
+                              Master Audio
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            Jika dinonaktifkan, overlay hanya akan menampilkan kartu visual tanpa memutar suara TTS.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleSetting("enableTts")}
+                        className={`w-12 h-6 flex items-center rounded-full p-1 cursor-pointer transition-colors shrink-0 ${
+                          tiktokSettings.enableTts ? "bg-primary" : "bg-gray-300"
+                        }`}
+                      >
+                        <div
+                          className={`bg-white w-4 h-4 rounded-full shadow-md transform transition-transform ${
+                            tiktokSettings.enableTts ? "translate-x-6" : "translate-x-0"
+                          }`}
+                        />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Quick 1-Click Simulation Buttons */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-3 mb-4">
+                    <h3 className="font-bold text-xs uppercase tracking-wider text-gray-700 flex items-center gap-1.5">
+                      <span className="material-symbols-outlined text-[18px] text-primary">bolt</span>
+                      Tes Cepat 1-Klik Simulasi Event
+                    </h3>
+                    <span className="text-[11px] text-gray-400">Klik untuk langsung trigger ke overlay</span>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("join", {
+                          nickname: "Budi Santoso",
+                          uniqueId: "budi_santoso",
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">👋</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Join Stream</span>
+                      <span className="text-[10px] text-gray-500 truncate">Sapa &ldquo;Budi Santoso&rdquo;</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("chat", {
+                          nickname: "Siti Rahma",
+                          uniqueId: "siti_rahma",
+                          message: "Halo bang, mantap banget gameplay-nya!",
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-green-50 hover:border-green-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">💬</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Baca Chat</span>
+                      <span className="text-[10px] text-gray-500 truncate">&ldquo;Halo bang, mantap...&rdquo;</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("gift", {
+                          nickname: "Andi Wijaya",
+                          uniqueId: "andi_w",
+                          giftName: "Mawar",
+                          giftCount: 5,
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-yellow-50 hover:border-yellow-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">🌹</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Gift Mawar x5</span>
+                      <span className="text-[10px] text-gray-500 truncate">Hadiah Mawar (5 buah)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("gift", {
+                          nickname: "Sultan Stream",
+                          uniqueId: "sultan_stream",
+                          giftName: "Ikan Paus",
+                          giftCount: 1,
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-amber-50 hover:border-amber-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">🪐</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Gift Paus x1</span>
+                      <span className="text-[10px] text-gray-500 truncate">Hadiah Besar / Paus</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("follow", {
+                          nickname: "Rian Pratama",
+                          uniqueId: "rian_p",
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-purple-50 hover:border-purple-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">🔔</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Follow Baru</span>
+                      <span className="text-[10px] text-gray-500 truncate">Follower baru</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isSimulatingEvent}
+                      onClick={() =>
+                        handleTriggerEventSim("share", {
+                          nickname: "Dewi Lestari",
+                          uniqueId: "dewi_l",
+                        })
+                      }
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-pink-50 hover:border-pink-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                    >
+                      <span className="text-xl">🚀</span>
+                      <span className="font-bold text-xs text-gray-900">Tes Share Live</span>
+                      <span className="text-[10px] text-gray-500 truncate">Bagikan link live</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom Simulation Form */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                  <h3 className="font-bold text-xs uppercase tracking-wider text-gray-700 flex items-center gap-1.5 mb-4">
+                    <span className="material-symbols-outlined text-[18px] text-primary">edit_note</span>
+                    Simulasi Kustom (Nama &amp; Pesan Bebas)
+                  </h3>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      handleTriggerEventSim(simEventType);
+                    }}
+                    className="flex flex-col gap-4"
+                  >
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Tipe Event
+                        </label>
+                        <select
+                          value={simEventType}
+                          onChange={(e) => setSimEventType(e.target.value as TikTokEventType)}
+                          className="w-full h-11 px-3 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-semibold bg-white"
+                        >
+                          <option value="join">👋 Join Stream (Sapaan)</option>
+                          <option value="chat">💬 Chat Komentar (TTS)</option>
+                          <option value="gift">🎁 Gift Hadiah</option>
+                          <option value="follow">🔔 Follow Baru</option>
+                          <option value="share">🚀 Share Live Stream</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Nama Penonton (Nickname)
+                        </label>
+                        <input
+                          type="text"
+                          value={simNickname}
+                          onChange={(e) => setSimNickname(e.target.value)}
+                          placeholder="e.g. Budi Santoso"
+                          className="w-full h-11 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-medium"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {simEventType === "chat" && (
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1">
+                          Isi Pesan Chat (Dibacakan oleh TTS)
+                        </label>
+                        <input
+                          type="text"
+                          value={simMessage}
+                          onChange={(e) => setSimMessage(e.target.value)}
+                          placeholder="Tulis pesan komentar..."
+                          className="w-full h-11 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-medium"
+                          required
+                        />
+                      </div>
+                    )}
+
+                    {simEventType === "gift" && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            Nama Hadiah / Gift
+                          </label>
+                          <input
+                            type="text"
+                            value={simGiftName}
+                            onChange={(e) => setSimGiftName(e.target.value)}
+                            placeholder="e.g. Mawar / Donat / Singa"
+                            className="w-full h-11 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-medium"
+                            required
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700 mb-1">
+                            Jumlah (Streak Count)
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={simGiftCount}
+                            onChange={(e) => setSimGiftCount(Math.max(1, parseInt(e.target.value) || 1))}
+                            className="w-full h-11 px-3.5 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-medium"
+                            required
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    <button
+                      type="submit"
+                      disabled={isSimulatingEvent}
+                      className="w-full h-11 bg-primary hover:bg-indigo-600 text-white rounded-xl font-bold text-xs transition disabled:opacity-50 flex items-center justify-center gap-2 shadow-sm"
+                    >
+                      {isSimulatingEvent ? (
+                        <>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Mengirim Event ke Overlay...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[18px]">send</span>
+                          <span>Kirim Event Simulasi Sekarang</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Right Column: OBS Setup & Architecture Instructions */}
+              <div className="lg:col-span-5 flex flex-col gap-6">
+                {/* OBS Setup Card */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2 mb-3">
+                    <span className="material-symbols-outlined text-[20px] text-primary">videocam</span>
+                    Konfigurasi OBS / TikTok Studio
+                  </h3>
+
+                  <div className="flex flex-col gap-4 text-xs text-gray-600">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Posisi Tampilan di Layar
+                      </label>
+                      <select
+                        value={eventsPosition}
+                        onChange={(e) => setEventsPosition(e.target.value)}
+                        className="w-full h-10 px-3 rounded-xl border border-gray-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none text-xs font-semibold bg-white"
+                      >
+                        <option value="bottom-left">Kiri Bawah (Bottom Left - Rekomendasi)</option>
+                        <option value="bottom-right">Kanan Bawah (Bottom Right)</option>
+                        <option value="bottom-center">Tengah Bawah (Bottom Center)</option>
+                        <option value="top-left">Kiri Atas (Top Left)</option>
+                        <option value="top-right">Kanan Atas (Top Right)</option>
+                      </select>
+                    </div>
+
+                    <div className="p-3 bg-gray-50 rounded-xl border border-gray-200 flex flex-col gap-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-700">URL Browser Source:</span>
+                        <a
+                          href={`/overlay/events?pos=${eventsPosition}&preview=1`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[11px] text-primary hover:underline font-bold"
+                        >
+                          Buka Preview ↗
+                        </a>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={
+                            typeof window !== "undefined"
+                              ? `${window.location.origin}/overlay/events?pos=${eventsPosition}`
+                              : `/overlay/events?pos=${eventsPosition}`
+                          }
+                          className="flex-1 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 text-[11px] font-mono select-all outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            copyToClipboard(`/overlay/events?pos=${eventsPosition}`, "Live Events")
+                          }
+                          className="px-3 py-1.5 bg-primary text-white font-bold text-xs rounded-lg hover:bg-indigo-600 transition shrink-0"
+                        >
+                          Salin
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="p-3.5 bg-amber-50/70 border border-amber-200/80 rounded-xl">
+                      <h4 className="font-bold text-amber-900 text-xs mb-1.5 flex items-center gap-1">
+                        <span>💡 Rekomendasi Pengaturan Browser Source:</span>
+                      </h4>
+                      <ul className="list-disc list-inside space-y-1 text-amber-900/90 text-[11px]">
+                        <li>
+                          <strong>Lebar (Width):</strong> 450 px
+                        </li>
+                        <li>
+                          <strong>Tinggi (Height):</strong> 500 px
+                        </li>
+                        <li>
+                          <strong>FPS:</strong> 60 FPS
+                        </li>
+                        <li>
+                          Centang <em>&ldquo;Control audio via OBS&rdquo;</em> jika ingin mengatur volume suara TTS langsung dari mixer OBS.
+                        </li>
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+
+                {/* TikTok Listener Background Worker Status */}
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
+                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2 mb-3">
+                    <span className="material-symbols-outlined text-[20px] text-green-600">terminal</span>
+                    Menghubungkan ke Live TikTok
+                  </h3>
+
+                  <div className="flex flex-col gap-3 text-xs text-gray-600">
+                    <p>
+                      Agar live event TikTok otomatis terbaca, jalankan script listener di terminal Anda:
+                    </p>
+
+                    <div className="p-3 bg-gray-900 text-green-400 font-mono text-[11px] rounded-xl flex items-center justify-between">
+                      <code>npm run tiktok @username_anda</code>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard.writeText("npm run tiktok");
+                          toast.success("Perintah disalin!");
+                        }}
+                        className="text-gray-400 hover:text-white text-[10px] font-sans px-2 py-0.5 rounded bg-gray-800"
+                      >
+                        Salin
+                      </button>
+                    </div>
+
+                    <div className="pt-2 border-t border-gray-100 flex flex-col gap-1.5 text-[11px]">
+                      <div className="flex items-center gap-1.5 font-semibold text-gray-800">
+                        <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                        Filter Cerdas Otomatis:
+                      </div>
+                      <p className="text-gray-500 pl-3.5">
+                        • Komentar berawalan <code>!1</code> atau <code>!2</code> diarahkan ke Live Poll.
+                        <br />• Komentar meme seperti <code>!klakson</code> atau <code>!anjay</code> langsung membunyikan SFX.
+                        <br />• Komentar biasa otomatis dibacakan oleh TTS ini.
+                        <br />• Sapaan join dibatasi interval 6 detik agar tidak menumpuk saat penonton ramai.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>

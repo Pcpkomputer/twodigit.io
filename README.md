@@ -238,6 +238,50 @@ https://your-domain.vercel.app/overlay/top-donors?limit=5&title=Top+Donatur+Bula
 
 ---
 
+### 4. ✨ TikTok Live Events & Interactive TTS Overlay (`/overlay/events`)
+Interactive real-time Saweria-style overlay companion for TikTok Live streams:
+- 👋 **Welcome Greeting (Join):** *"Halo [Nama], selamat datang di live stream!"* (Throttled with 6s interval and deduplication to avoid queue flooding).
+- 💬 **Live Chat Read-aloud:** Automatic natural Indonesian TTS for regular viewer comments (*"[Nama] berkata: [Komentar]"*).
+- 🎁 **Gift Celebration:** High-priority announcements for gifts (*"Terima kasih [Nama] sudah mengirim [Hadiah] x[Jumlah]!"*).
+- 🔔 **Follow & Share Appreciation:** Real-time thank-you alerts for new followers and stream shares.
+
+**OBS Browser Source URL:**
+```text
+https://your-domain.vercel.app/overlay/events?pos=bottom-left
+```
+*Recommended Size:* Width: 450px, Height: 500px, 60 FPS.
+
+---
+
+### 5. 📊 Live Voting Overlay (`/overlay/poll`)
+Real-time voting overlay driven by viewer TikTok comments (`!1`, `!2`, etc.) with animated progress bars, live percentages, and winner celebration screen.
+
+**OBS Browser Source URL:**
+```text
+https://your-domain.vercel.app/overlay/poll?pos=bottom-left
+```
+
+---
+
+### 6. 🔊 Meme SFX Soundboard Overlay (`/overlay/sfx`)
+Instant soundboard overlay that plays sound effects when viewers type meme commands (`!klakson`, `!kaget`, `!wasted`, `!bruh`, `!error`) with built-in per-user and global cooldowns.
+
+---
+
+## 📡 Running the TikTok Live Listener
+
+To connect your live stream directly with the polling, SFX, and event TTS overlays, start the listener worker:
+
+```bash
+# Direct CLI with your username
+npm run tiktok @your_tiktok_username
+
+# Or set TIKTOK_USERNAME in .env and run
+npm run tiktok
+```
+
+---
+
 ## 🚀 Run Locally & Deploy
 
 ```bash

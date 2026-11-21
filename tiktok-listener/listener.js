@@ -9,9 +9,12 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Load .env from listener directory or root
+dotenv.config({ path: path.join(__dirname, ".env") });
 dotenv.config();
 
-const TIKTOK_USERNAME = process.env.TIKTOK_USERNAME?.replace(/^@/, "").trim();
+const cliUser = process.argv[2]?.replace(/^@/, "").trim();
+const TIKTOK_USERNAME = cliUser || process.env.TIKTOK_USERNAME?.replace(/^@/, "").trim();
 const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3000").replace(/\/+$/, "");
 const LISTENER_SECRET = process.env.LISTENER_SECRET || "p3rw1rapc";
 const SFX_COOLDOWN_SECONDS = parseInt(process.env.SFX_COOLDOWN_SECONDS || "30", 10);
@@ -243,7 +246,119 @@ tiktokLiveConnection.on("chat", async (data) => {
         );
       }
     }
+    return;
   }
+
+  // -------------------------------------------------------------
+  // 3. REGULAR CHAT COMMENT (Dibacakan oleh TTS & Ditampilkan di Overlay)
+  // -------------------------------------------------------------
+  if (comment && comment.length <= 100) {
+    console.log(`💬 [CHAT] @${userId} (${nickname}): "${comment}"`);
+    sendTikTokEvent({
+      eventType: "chat",
+      uniqueId: userId,
+      nickname,
+      message: comment,
+    });
+  }
+});
+
+// -------------------------------------------------------------
+// Helper untuk mengirim event ke backend
+// -------------------------------------------------------------
+async function sendTikTokEvent(payload) {
+  try {
+    await axios.post(`${BACKEND_URL}/api/tiktok-events`, payload, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-listener-secret": LISTENER_SECRET,
+      },
+      timeout: 5000,
+    });
+  } catch (err) {
+    // Abaikan jika server sibuk / error sementara
+  }
+}
+
+// -------------------------------------------------------------
+// 4. MEMBER JOIN (Sapaan Penonton Masuk)
+// -------------------------------------------------------------
+const welcomedUsers = new Set();
+let lastJoinWelcomeTime = 0;
+
+tiktokLiveConnection.on("member", async (data) => {
+  const userId = data.uniqueId || data.user?.uniqueId || "viewer";
+  const nickname = data.nickname || data.user?.nickname || userId;
+  const now = Date.now();
+
+  // Deduplicate: User yang sama tidak disapa berulang kali jika re-join
+  if (welcomedUsers.has(userId)) return;
+
+  // Throttle: Jeda minimal 6 detik antar sapaan join agar TTS tidak menumpuk
+  if (now - lastJoinWelcomeTime < 6000) return;
+
+  welcomedUsers.add(userId);
+  lastJoinWelcomeTime = now;
+
+  console.log(`👋 [MEMBER JOIN] @${userId} (${nickname}) masuk ke stream.`);
+  sendTikTokEvent({
+    eventType: "join",
+    uniqueId: userId,
+    nickname,
+  });
+});
+
+// -------------------------------------------------------------
+// 5. GIFT (Saweran Hadiah TikTok)
+// -------------------------------------------------------------
+tiktokLiveConnection.on("gift", async (data) => {
+  // Hanya proses jika streak sudah selesai atau gift non-streak (repeatEnd === true)
+  if (data.giftType === 1 && !data.repeatEnd) {
+    return;
+  }
+
+  const userId = data.uniqueId || data.user?.uniqueId || "viewer";
+  const nickname = data.nickname || data.user?.nickname || userId;
+  const giftName = data.giftName || "Hadiah";
+  const giftCount = data.repeatCount || data.giftCount || 1;
+  const diamondCount = data.diamondCount || 0;
+
+  console.log(`🎁 [GIFT] @${userId} (${nickname}) kirim ${giftName} x${giftCount}!`);
+  sendTikTokEvent({
+    eventType: "gift",
+    uniqueId: userId,
+    nickname,
+    giftName,
+    giftCount,
+    diamondCount,
+  });
+});
+
+// -------------------------------------------------------------
+// 6. FOLLOW & SHARE
+// -------------------------------------------------------------
+tiktokLiveConnection.on("follow", async (data) => {
+  const userId = data.uniqueId || data.user?.uniqueId || "viewer";
+  const nickname = data.nickname || data.user?.nickname || userId;
+
+  console.log(`➕ [FOLLOW] @${userId} (${nickname}) mulai mengikuti stream.`);
+  sendTikTokEvent({
+    eventType: "follow",
+    uniqueId: userId,
+    nickname,
+  });
+});
+
+tiktokLiveConnection.on("share", async (data) => {
+  const userId = data.uniqueId || data.user?.uniqueId || "viewer";
+  const nickname = data.nickname || data.user?.nickname || userId;
+
+  console.log(`📢 [SHARE] @${userId} (${nickname}) membagikan live stream.`);
+  sendTikTokEvent({
+    eventType: "share",
+    uniqueId: userId,
+    nickname,
+  });
 });
 
 // Stream lifecycle events with auto-reconnect

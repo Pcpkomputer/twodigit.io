@@ -1,4 +1,4 @@
-import { TikTokLiveConnection } from "tiktok-live-connector";
+import { TikTokLiveConnection, SignConfig } from "tiktok-live-connector";
 import axios from "axios";
 import dotenv from "dotenv";
 import path from "path";
@@ -17,6 +17,11 @@ const BACKEND_URL = (process.env.BACKEND_URL || "http://localhost:3000").replace
 const LISTENER_SECRET = process.env.LISTENER_SECRET || "p3rw1rapc";
 const SFX_COOLDOWN_SECONDS = parseInt(process.env.SFX_COOLDOWN_SECONDS || "30", 10);
 const SFX_COOLDOWN_MS = SFX_COOLDOWN_SECONDS * 1000;
+const SIGN_API_KEY = process.env.SIGN_API_KEY?.trim() || "";
+
+if (SIGN_API_KEY) {
+  SignConfig.apiKey = SIGN_API_KEY;
+}
 
 if (!TIKTOK_USERNAME || TIKTOK_USERNAME === "username_streamer") {
   console.error("=====================================================================");
@@ -33,6 +38,7 @@ console.log("🎯 TikTok Live Voting, SFX & Event TTS Listener by twodigit.io");
 console.log(`📡 Target Streamer   : @${TIKTOK_USERNAME}`);
 console.log(`🌐 Backend Server     : ${BACKEND_URL}`);
 console.log(`⏱️  Global SFX Cooldown: ${SFX_COOLDOWN_SECONDS} detik`);
+console.log(`🔑 Sign API Key      : ${SIGN_API_KEY ? "Aktif (Euler Stream)" : "Belum diatur (Shared Free Pool)"}`);
 console.log("=====================================================================");
 
 // In-Memory Cooldown Tracker
@@ -68,6 +74,7 @@ const SFX_COMMANDS = {
 
 const tiktokLiveConnection = new TikTokLiveConnection(TIKTOK_USERNAME, {
   processInitialData: false,
+  signApiKey: SIGN_API_KEY || undefined,
 });
 
 // Regex to capture viewer vote commands:
@@ -142,6 +149,14 @@ function connectTikTok() {
       retryAttempt++;
       const delay = Math.min(30, 5 * retryAttempt);
       console.error(`❌ Gagal terhubung ke TikTok Live: ${err.message}`);
+
+      if (err.message?.includes("Rate Limited") || err.message?.includes("Sign") || err.name === "SignAPIError" || !SIGN_API_KEY) {
+        console.warn("💡 TIPS: Jika muncul pesan 'You have reached the rate limit', daftarkan API Key gratis di:");
+        console.warn("   👉 https://www.eulerstream.com/pricing (Pilih Free Tier 0 USD)");
+        console.warn("   Lalu masukkan ke file tiktok-listener/.env:");
+        console.warn("   SIGN_API_KEY=\"api_key_kamu_disini\"\n");
+      }
+
       console.log(`⏳ Mencoba menyambung kembali dalam ${delay} detik...`);
       reconnectTimer = setTimeout(connectTikTok, delay * 1000);
     });

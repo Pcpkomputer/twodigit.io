@@ -425,6 +425,15 @@ function BundleOverlayContent() {
         const isDuplicate = addBoundedId(processedChatIdsRef, data.id);
         if (isDuplicate) return;
 
+        // Instantly silence & quick-finish any active greeting so Host Chat has 100% stage priority
+        if (eventDismissTimerRef.current) {
+          clearTimeout(eventDismissTimerRef.current);
+          eventDismissTimerRef.current = null;
+        }
+        stopEventAudio();
+        setCurrentEvent(null);
+        setIsEventExiting(false);
+
         setChatQueue((prev) => {
           const next = [...prev, data];
           return next.slice(-6);
@@ -543,14 +552,21 @@ function BundleOverlayContent() {
     };
   }, [currentAlert]);
 
-  // TikTok Live Events Queue Processor
+  // TikTok Live Events Queue Processor (Strictly paused while Host Chat is active, queued, or exiting)
   useEffect(() => {
-    if (currentEvent === null && eventQueue.length > 0 && !isEventExiting) {
+    if (
+      currentEvent === null &&
+      eventQueue.length > 0 &&
+      !isEventExiting &&
+      currentChat === null &&
+      chatQueue.length === 0 &&
+      !isChatExiting
+    ) {
       const [nextEvent, ...remaining] = eventQueue;
       setCurrentEvent(nextEvent);
       setEventQueue(remaining);
     }
-  }, [currentEvent, eventQueue, isEventExiting]);
+  }, [currentEvent, eventQueue, isEventExiting, currentChat, chatQueue, isChatExiting]);
 
   // TikTok Live Events TTS Player & Guaranteed Auto-Dismiss
   useEffect(() => {
@@ -631,14 +647,27 @@ function BundleOverlayContent() {
     };
   }, [currentEvent]);
 
-  // Interactive Host Chat Queue Processor (Immediate pickup, never blocked by events)
+  // Interactive Host Chat Queue Processor (HIGHEST PRIORITY: Preempts and quick-finishes any greeting)
   useEffect(() => {
-    if (currentChat === null && chatQueue.length > 0) {
-      const [nextChat, ...remaining] = chatQueue;
-      setCurrentChat(nextChat);
-      setChatQueue(remaining);
+    if (chatQueue.length > 0) {
+      // Instantly kill/quick-finish any active greeting overlay & audio
+      if (currentEvent) {
+        if (eventDismissTimerRef.current) {
+          clearTimeout(eventDismissTimerRef.current);
+          eventDismissTimerRef.current = null;
+        }
+        stopEventAudio();
+        setCurrentEvent(null);
+        setIsEventExiting(false);
+      }
+
+      if (currentChat === null) {
+        const [nextChat, ...remaining] = chatQueue;
+        setCurrentChat(nextChat);
+        setChatQueue(remaining);
+      }
     }
-  }, [currentChat, chatQueue]);
+  }, [currentChat, chatQueue, currentEvent]);
 
   // Interactive Host Chat TTS Player & Synchronized Countdown Bar Dismissal
   useEffect(() => {
@@ -868,7 +897,7 @@ function BundleOverlayContent() {
               isEventExiting
                 ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
                 : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
-            } ${eventsPos === chatPos && currentChat ? "mb-44 md:mb-48" : ""}`}
+            }`}
           >
             {/* Saweria Style Floating Event Card */}
             <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">

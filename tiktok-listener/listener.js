@@ -201,6 +201,12 @@ tiktokLiveConnection.on("chat", async (data) => {
     return;
   }
 
+  // ABAIKAN KOMENTAR DARI STREAMER / HOST SENDIRI:
+  // Pesan dari akun host sendiri tidak boleh memicu viewer greeting/chat overlay!
+  if (TIKTOK_USERNAME && userId.toLowerCase() === TIKTOK_USERNAME.toLowerCase()) {
+    return;
+  }
+
   // -----------------------------------------------------------
   // A. CEK MEME SFX COMMAND (!klakson, !kaget, !wasted, !bruh, dll)
   // -----------------------------------------------------------
@@ -336,8 +342,9 @@ tiktokLiveConnection.on("member", async (data) => {
   const nickname = (user.nickname || data.nickname || userId || "Teman Baru").trim();
   const now = Date.now();
 
-  // Pastikan ID valid dan bukan kosong
+  // Pastikan ID valid dan bukan kosong atau host sendiri
   if (!userId || userId === "viewer") return;
+  if (TIKTOK_USERNAME && userId.toLowerCase() === TIKTOK_USERNAME.toLowerCase()) return;
 
   // Deduplikasi: Jangan sapa orang yang sama berulang kali dalam 10 menit
   const lastWelcomed = welcomedUserTimestamps.get(userId);

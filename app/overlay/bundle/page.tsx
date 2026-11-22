@@ -145,28 +145,14 @@ function BundleOverlayContent() {
   // Audio & Hardware Lock State
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
-  // Zero-Leak Persistent Audio Players: exactly 1 for all TTS and 1 for SFX
-  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Persistent Isolated Audio Players: 1 per module to guarantee zero audio collisions
+  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
+  const eventAudioRef = useRef<HTMLAudioElement | null>(null);
+  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // State-driven countdown progress (0% to 100%) guaranteed to hit exactly 0.0%
-  const [chatProgress, setChatProgress] = useState<number>(100);
-  const chatProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const chatTimingStateRef = useRef<{
-    phase: "speaking" | "gliding";
-    startTime: number;
-    totalDuration: number;
-    glideStartTime: number;
-    glideStartPct: number;
-    latestPct: number;
-  }>({
-    phase: "speaking",
-    startTime: 0,
-    totalDuration: 6000,
-    glideStartTime: 0,
-    glideStartPct: 100,
-    latestPct: 100,
-  });
+  // Synchronized countdown bar duration for host chat
+  const [chatDisplayDuration, setChatDisplayDuration] = useState<number>(6000);
 
   // Dismiss timers
   const alertDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -190,17 +176,45 @@ function BundleOverlayContent() {
     return false;
   };
 
-  // Helper: Stop TTS Audio cleanly
-  const stopTTSAudio = () => {
-    if (ttsAudioRef.current) {
+  // Helper: Stop Alert Audio cleanly
+  const stopAlertAudio = () => {
+    if (alertAudioRef.current) {
       try {
-        ttsAudioRef.current.pause();
-        ttsAudioRef.current.removeAttribute("src");
-        ttsAudioRef.current.load();
-        ttsAudioRef.current.onended = null;
-        ttsAudioRef.current.onerror = null;
-        ttsAudioRef.current.onstalled = null;
-        ttsAudioRef.current.onloadedmetadata = null;
+        alertAudioRef.current.pause();
+        alertAudioRef.current.removeAttribute("src");
+        alertAudioRef.current.load();
+        alertAudioRef.current.onended = null;
+        alertAudioRef.current.onerror = null;
+      } catch {}
+    }
+  };
+
+  // Helper: Stop Event Audio cleanly
+  const stopEventAudio = () => {
+    if (eventAudioRef.current) {
+      try {
+        eventAudioRef.current.pause();
+        eventAudioRef.current.removeAttribute("src");
+        eventAudioRef.current.load();
+        eventAudioRef.current.onended = null;
+        eventAudioRef.current.onerror = null;
+        eventAudioRef.current.onstalled = null;
+        eventAudioRef.current.onloadedmetadata = null;
+      } catch {}
+    }
+  };
+
+  // Helper: Stop Chat Audio cleanly
+  const stopChatAudio = () => {
+    if (chatAudioRef.current) {
+      try {
+        chatAudioRef.current.pause();
+        chatAudioRef.current.removeAttribute("src");
+        chatAudioRef.current.load();
+        chatAudioRef.current.onended = null;
+        chatAudioRef.current.onerror = null;
+        chatAudioRef.current.onstalled = null;
+        chatAudioRef.current.onloadedmetadata = null;
       } catch {}
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -223,15 +237,25 @@ function BundleOverlayContent() {
     }
   };
 
-  // Unlock Audio on Mount (exactly 2 persistent Audio instances for the entire lifecycle)
+  // Unlock Audio on Mount (exactly 4 persistent Audio instances for the entire lifecycle)
   useEffect(() => {
-    const ttsAudio = new Audio();
-    ttsAudio.crossOrigin = "anonymous";
-    ttsAudioRef.current = ttsAudio;
+    if (typeof window !== "undefined") {
+      const alertAudio = new Audio();
+      alertAudio.crossOrigin = "anonymous";
+      alertAudioRef.current = alertAudio;
 
-    const sfxAudio = new Audio();
-    sfxAudio.crossOrigin = "anonymous";
-    sfxAudioRef.current = sfxAudio;
+      const eventAudio = new Audio();
+      eventAudio.crossOrigin = "anonymous";
+      eventAudioRef.current = eventAudio;
+
+      const chatAudio = new Audio();
+      chatAudio.crossOrigin = "anonymous";
+      chatAudioRef.current = chatAudio;
+
+      const sfxAudio = new Audio();
+      sfxAudio.crossOrigin = "anonymous";
+      sfxAudioRef.current = sfxAudio;
+    }
 
     const unlock = () => {
       try {
@@ -248,7 +272,9 @@ function BundleOverlayContent() {
     window.addEventListener("click", unlock);
     return () => {
       window.removeEventListener("click", unlock);
-      stopTTSAudio();
+      stopAlertAudio();
+      stopEventAudio();
+      stopChatAudio();
       stopSfxAudio();
     };
   }, []);
@@ -471,13 +497,13 @@ function BundleOverlayContent() {
     const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
     alertDismissTimerRef.current = setTimeout(() => {
       setCurrentAlert(null);
-      stopTTSAudio();
+      stopAlertAudio();
     }, safetyTimeout);
 
     // Play TTS via persistent audio element
     if (speechText) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = alertAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
@@ -486,7 +512,7 @@ function BundleOverlayContent() {
               if (alertDismissTimerRef.current) clearTimeout(alertDismissTimerRef.current);
               alertDismissTimerRef.current = setTimeout(() => {
                 setCurrentAlert(null);
-                stopTTSAudio();
+                stopAlertAudio();
               }, 2000);
             }
           };
@@ -500,15 +526,14 @@ function BundleOverlayContent() {
     };
   }, [currentAlert]);
 
-  // TikTok Live Events Queue Processor (Coordinates with Host Chat so they never collide)
+  // TikTok Live Events Queue Processor
   useEffect(() => {
-    // Hold off popping a new event while host chat is active or previous event is fading out
-    if (currentEvent === null && eventQueue.length > 0 && !isEventExiting && currentChat === null) {
+    if (currentEvent === null && eventQueue.length > 0 && !isEventExiting) {
       const [nextEvent, ...remaining] = eventQueue;
       setCurrentEvent(nextEvent);
       setEventQueue(remaining);
     }
-  }, [currentEvent, eventQueue, isEventExiting, currentChat]);
+  }, [currentEvent, eventQueue, isEventExiting]);
 
   // TikTok Live Events TTS Player & Guaranteed Auto-Dismiss
   useEffect(() => {
@@ -531,7 +556,7 @@ function BundleOverlayContent() {
       setTimeout(() => {
         setCurrentEvent(null);
         setIsEventExiting(false);
-        stopTTSAudio();
+        stopEventAudio();
       }, 250);
     };
 
@@ -541,7 +566,7 @@ function BundleOverlayContent() {
 
     if (currentEvent.speechText) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = eventAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(currentEvent.speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
@@ -589,150 +614,100 @@ function BundleOverlayContent() {
     };
   }, [currentEvent]);
 
-  // Interactive Host Chat Queue Processor (Priority over join sapaan)
+  // Interactive Host Chat Queue Processor (Immediate pickup, never blocked by events)
   useEffect(() => {
-    // If streamer sends interactive chat while sapaan is active, fast-track sapaan exit cleanly
-    if (chatQueue.length > 0 && currentEvent && !isEventExiting) {
-      if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-      setIsEventExiting(true);
-      setTimeout(() => {
-        setCurrentEvent(null);
-        setIsEventExiting(false);
-        stopTTSAudio();
-      }, 250);
-    }
-
-    if (currentChat === null && chatQueue.length > 0 && currentEvent === null) {
+    if (currentChat === null && chatQueue.length > 0) {
       const [nextChat, ...remaining] = chatQueue;
       setCurrentChat(nextChat);
       setChatQueue(remaining);
     }
-  }, [currentChat, chatQueue, currentEvent, isEventExiting]);
+  }, [currentChat, chatQueue]);
 
   // Interactive Host Chat TTS Player & Synchronized Countdown Bar Dismissal
   useEffect(() => {
     if (!currentChat || isPreview) return;
 
-    if (chatProgressIntervalRef.current) {
-      clearInterval(chatProgressIntervalRef.current);
-      chatProgressIntervalRef.current = null;
-    }
     if (chatDismissTimerRef.current) {
       clearTimeout(chatDismissTimerRef.current);
       chatDismissTimerRef.current = null;
     }
 
     const estimatedDuration = Math.min(
-      25000,
+      30000,
       Math.max(5000, Math.ceil(currentChat.message.length * 115) + 3500)
     );
+    setChatDisplayDuration(estimatedDuration);
     setIsChatSpeaking(true);
-    setChatProgress(100);
-
-    chatTimingStateRef.current = {
-      phase: "speaking",
-      startTime: Date.now(),
-      totalDuration: estimatedDuration,
-      glideStartTime: 0,
-      glideStartPct: 100,
-      latestPct: 100,
-    };
 
     const dismissChat = () => {
-      if (chatProgressIntervalRef.current) {
-        clearInterval(chatProgressIntervalRef.current);
-        chatProgressIntervalRef.current = null;
-      }
       if (chatDismissTimerRef.current) {
         clearTimeout(chatDismissTimerRef.current);
         chatDismissTimerRef.current = null;
       }
       setIsChatSpeaking(false);
-      stopTTSAudio();
+      stopChatAudio();
       setCurrentChat(null);
     };
 
-    const triggerGlide = () => {
-      setIsChatSpeaking(false);
-      if (chatTimingStateRef.current.phase !== "gliding") {
-        chatTimingStateRef.current.phase = "gliding";
-        chatTimingStateRef.current.glideStartTime = Date.now();
-        chatTimingStateRef.current.glideStartPct = chatTimingStateRef.current.latestPct;
-      }
-    };
-
-    // 25ms interval loop mathematically guaranteed to reach exactly 0.0% before dismiss
-    chatProgressIntervalRef.current = setInterval(() => {
-      const state = chatTimingStateRef.current;
-      if (state.phase === "speaking") {
-        const elapsed = Date.now() - state.startTime;
-        const pct = Math.max(10, 100 - (elapsed / state.totalDuration) * 90);
-        state.latestPct = pct;
-        setChatProgress(pct);
-
-        if (elapsed > state.totalDuration + 4000) {
-          triggerGlide();
-        }
-      } else if (state.phase === "gliding") {
-        const elapsedGlide = Date.now() - state.glideStartTime;
-        const glideDuration = 1500;
-        const pct = Math.max(0, state.glideStartPct * (1 - elapsedGlide / glideDuration));
-        state.latestPct = pct;
-        setChatProgress(pct);
-
-        if (pct <= 0) {
-          dismissChat();
-        }
-      }
-    }, 25);
+    // 1. HARD WATCHDOG TIMER: Always guarantees popup dismissal
+    chatDismissTimerRef.current = setTimeout(dismissChat, estimatedDuration);
 
     if (currentChat.message) {
       try {
-        const audio = ttsAudioRef.current;
+        const audio = chatAudioRef.current;
         if (audio) {
           const voiceParam = currentChat.voice ? `&voice=${encodeURIComponent(currentChat.voice)}` : "&voice=schoolgirl";
           audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
           audio.volume = 1.0;
 
+          // When audio length is known, adapt countdown bar to EXACT audio length + reading buffer
           audio.onloadedmetadata = () => {
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
-              const elapsed = Date.now() - chatTimingStateRef.current.startTime;
-              chatTimingStateRef.current.totalDuration = elapsed + audioMs + 1500;
+              const postSpeechDelay = chatQueue.length > 0 ? 1000 : 1800;
+              const totalDuration = audioMs + postSpeechDelay;
+              setChatDisplayDuration(totalDuration);
+
+              if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+              chatDismissTimerRef.current = setTimeout(dismissChat, audioMs + 3500);
             }
           };
 
           audio.onended = () => {
-            triggerGlide();
+            setIsChatSpeaking(false);
+            const postSpeechDelay = chatQueue.length > 0 ? 1000 : 1800;
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, postSpeechDelay);
           };
 
           audio.onerror = () => {
-            triggerGlide();
+            setIsChatSpeaking(false);
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 2000);
           };
 
           audio.onstalled = () => {
-            triggerGlide();
+            setIsChatSpeaking(false);
+            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+            chatDismissTimerRef.current = setTimeout(dismissChat, 2500);
           };
 
           audio.play().catch(() => {
-            triggerGlide();
+            setIsChatSpeaking(false);
           });
         }
       } catch {
-        triggerGlide();
+        setIsChatSpeaking(false);
       }
     }
 
     return () => {
-      if (chatProgressIntervalRef.current) {
-        clearInterval(chatProgressIntervalRef.current);
-        chatProgressIntervalRef.current = null;
-      }
       if (chatDismissTimerRef.current) {
         clearTimeout(chatDismissTimerRef.current);
         chatDismissTimerRef.current = null;
       }
       setIsChatSpeaking(false);
+      stopChatAudio();
     };
   }, [currentChat]);
 
@@ -879,7 +854,7 @@ function BundleOverlayContent() {
               setTimeout(() => {
                 setCurrentEvent(null);
                 setIsEventExiting(false);
-                stopTTSAudio();
+                stopEventAudio();
               }, 200);
             }}
             className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
@@ -930,7 +905,7 @@ function BundleOverlayContent() {
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
               setCurrentChat(null);
-              stopTTSAudio();
+              stopChatAudio();
             }}
             className="transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-5"
           >
@@ -974,8 +949,11 @@ function BundleOverlayContent() {
               {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
               <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
                 <div
+                  key={`${currentChat.id}-${chatDisplayDuration}`}
                   className="bg-yellow-400 h-full origin-left rounded-full"
-                  style={{ width: `${Math.max(0, Math.min(100, chatProgress)).toFixed(1)}%` }}
+                  style={{
+                    animation: `shrinkWidth ${chatDisplayDuration}ms linear forwards`,
+                  }}
                 />
               </div>
             </div>

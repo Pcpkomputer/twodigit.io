@@ -25,27 +25,10 @@ function ChatOverlayContent() {
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
   const [queue, setQueue] = useState<InteractiveChatMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
-  const [displayDuration, setDisplayDuration] = useState<number>(5000);
-  const [progress, setProgress] = useState<number>(100);
+  const [displayDuration, setDisplayDuration] = useState<number>(6000);
 
   // Single persistent audio instance (zero memory leak in OBS)
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
-  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const chatTimingStateRef = useRef<{
-    phase: "speaking" | "gliding";
-    startTime: number;
-    totalDuration: number;
-    glideStartTime: number;
-    glideStartPct: number;
-    latestPct: number;
-  }>({
-    phase: "speaking",
-    startTime: 0,
-    totalDuration: 6000,
-    glideStartTime: 0,
-    glideStartPct: 100,
-    latestPct: 100,
-  });
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -78,10 +61,6 @@ function ChatOverlayContent() {
   };
 
   const clearAllTimers = () => {
-    if (progressIntervalRef.current) {
-      clearInterval(progressIntervalRef.current);
-      progressIntervalRef.current = null;
-    }
     if (dismissTimerRef.current) {
       clearTimeout(dismissTimerRef.current);
       dismissTimerRef.current = null;
@@ -301,7 +280,6 @@ function ChatOverlayContent() {
 
     clearAllTimers();
     setIsExiting(false);
-    setProgress(100);
 
     const speechText = currentChat.message;
 
@@ -312,64 +290,34 @@ function ChatOverlayContent() {
     );
     setDisplayDuration(estimatedDuration);
 
-    chatTimingStateRef.current = {
-      phase: "speaking",
-      startTime: Date.now(),
-      totalDuration: estimatedDuration,
-      glideStartTime: 0,
-      glideStartPct: 100,
-      latestPct: 100,
-    };
+    // 1. HARD WATCHDOG TIMER: Guarantees popup always dismisses safely
+    watchdogTimerRef.current = setTimeout(() => {
+      dismissChat();
+    }, estimatedDuration);
 
-    const triggerGlide = () => {
-      setIsSpeaking(false);
-      if (chatTimingStateRef.current.phase !== "gliding") {
-        chatTimingStateRef.current.phase = "gliding";
-        chatTimingStateRef.current.glideStartTime = Date.now();
-        chatTimingStateRef.current.glideStartPct = chatTimingStateRef.current.latestPct;
-      }
-    };
-
-    // 25ms interval loop mathematically guaranteed to reach exactly 0.0% before dismiss
-    progressIntervalRef.current = setInterval(() => {
-      const state = chatTimingStateRef.current;
-      if (state.phase === "speaking") {
-        const elapsed = Date.now() - state.startTime;
-        const pct = Math.max(10, 100 - (elapsed / state.totalDuration) * 90);
-        state.latestPct = pct;
-        setProgress(pct);
-
-        if (elapsed > state.totalDuration + 4000) {
-          triggerGlide();
-        }
-      } else if (state.phase === "gliding") {
-        const elapsedGlide = Date.now() - state.glideStartTime;
-        const glideDuration = 1500;
-        const pct = Math.max(0, state.glideStartPct * (1 - elapsedGlide / glideDuration));
-        state.latestPct = pct;
-        setProgress(pct);
-
-        if (pct <= 0) {
-          if (progressIntervalRef.current) {
-            clearInterval(progressIntervalRef.current);
-            progressIntervalRef.current = null;
-          }
-          dismissChat();
-        }
-      }
-    }, 25);
-
-    // Play TTS audio and dynamically adapt to the exact audio duration
+    // 2. Play TTS audio and dynamically adapt to the exact audio duration
     playTTS(
       speechText,
       // onEnded:
       () => {
-        triggerGlide();
+        // Audio finished cleanly: give 1.8s reading buffer (or 1s if backlog) then close
+        const postSpeechDelay = queue.length > 0 ? 1000 : 1800;
+        dismissTimerRef.current = setTimeout(() => {
+          dismissChat();
+        }, postSpeechDelay);
       },
       // onDurationKnown:
       (audioMs) => {
-        const elapsed = Date.now() - chatTimingStateRef.current.startTime;
-        chatTimingStateRef.current.totalDuration = elapsed + audioMs + 1500;
+        const postSpeechDelay = queue.length > 0 ? 1000 : 1800;
+        const totalDuration = audioMs + postSpeechDelay;
+        setDisplayDuration(totalDuration);
+
+        if (watchdogTimerRef.current) {
+          clearTimeout(watchdogTimerRef.current);
+        }
+        watchdogTimerRef.current = setTimeout(() => {
+          dismissChat();
+        }, audioMs + 3500);
       },
       currentChat.voice || "schoolgirl"
     );
@@ -449,8 +397,11 @@ function ChatOverlayContent() {
             {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
             <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
               <div
+                key={`${currentChat.id}-${displayDuration}`}
                 className="bg-yellow-400 h-full origin-left rounded-full"
-                style={{ width: `${Math.max(0, Math.min(100, progress)).toFixed(1)}%` }}
+                style={{
+                  animation: `shrinkWidth ${displayDuration}ms linear forwards`,
+                }}
               />
             </div>
           </div>

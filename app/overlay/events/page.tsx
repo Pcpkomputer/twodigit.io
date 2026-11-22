@@ -13,26 +13,113 @@ function TikTokEventsOverlayContent() {
   const [currentEvent, setCurrentEvent] = useState<TikTokEventPayload | null>(null);
   const [queue, setQueue] = useState<TikTokEventPayload[]>([]);
   const [isExiting, setIsExiting] = useState<boolean>(false);
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
 
+  // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const exitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const watchdogTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeEventIdRef = useRef<string | null>(null);
 
-  // Initialize and unlock audio on mount
+  // Clear all pending lifecycle timers
+  const clearAllTimers = () => {
+    if (dismissTimeoutRef.current) {
+      clearTimeout(dismissTimeoutRef.current);
+      dismissTimeoutRef.current = null;
+    }
+    if (exitTimeoutRef.current) {
+      clearTimeout(exitTimeoutRef.current);
+      exitTimeoutRef.current = null;
+    }
+    if (watchdogTimeoutRef.current) {
+      clearTimeout(watchdogTimeoutRef.current);
+      watchdogTimeoutRef.current = null;
+    }
+    if (transitionTimeoutRef.current) {
+      clearTimeout(transitionTimeoutRef.current);
+      transitionTimeoutRef.current = null;
+    }
+  };
+
+  // Safely stop audio and null out all listeners to prevent ghost callbacks
+  const stopAudio = () => {
+    const audio = audioRef.current;
+    if (audio) {
+      audio.onended = null;
+      audio.onerror = null;
+      audio.onloadedmetadata = null;
+      audio.onstalled = null;
+      audio.onplay = null;
+      audio.onpause = null;
+      try {
+        audio.pause();
+        audio.removeAttribute("src");
+        audio.load();
+      } catch {}
+    }
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  };
+
+  // Safe dismiss routine: guarantees clean transition and resets all flags
+  const dismissCurrentEvent = () => {
+    clearAllTimers();
+    stopAudio();
+    setIsExiting(true);
+
+    exitTimeoutRef.current = setTimeout(() => {
+      setCurrentEvent(null);
+      setIsExiting(false);
+      activeEventIdRef.current = null;
+
+      // 300ms breather before showing next item (prevents visual collision & overlapping audio)
+      setIsTransitioning(true);
+      transitionTimeoutRef.current = setTimeout(() => {
+        setIsTransitioning(false);
+      }, 300);
+    }, 250);
+  };
+
+  // Initialize persistent Audio element & unlock autoplay on mount
   useEffect(() => {
-    const audio = new Audio();
-    audio.crossOrigin = "anonymous";
-    audioRef.current = audio;
+    if (typeof window !== "undefined") {
+      audioRef.current = new Audio();
+      audioRef.current.crossOrigin = "anonymous";
+    }
+
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
 
     const unlock = () => {
-      if (audioRef.current) {
-        audioRef.current.play().catch(() => {});
-      }
+      try {
+        const silent = new Audio(
+          "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+        );
+        silent.volume = 0.01;
+        silent.play().catch(() => {});
+      } catch {}
       window.removeEventListener("click", unlock);
+      window.removeEventListener("keydown", unlock);
     };
 
     window.addEventListener("click", unlock);
-    return () => window.removeEventListener("click", unlock);
+    window.addEventListener("keydown", unlock);
+
+    return () => {
+      window.removeEventListener("click", unlock);
+      window.removeEventListener("keydown", unlock);
+      clearAllTimers();
+      stopAudio();
+      audioRef.current = null;
+    };
   }, []);
 
   // Demo preview mode
@@ -51,10 +138,11 @@ function TikTokEventsOverlayContent() {
         timestamp: new Date().toISOString(),
         priority: 1,
       });
+      setIsExiting(false);
     }
   }, [isPreview]);
 
-  // Subscribe to Pusher channel
+  // Subscribe to Pusher 'donation-stream'
   useEffect(() => {
     const pusherKey = process.env.NEXT_PUBLIC_PUSHER_KEY || "";
     const cluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER || "ap1";
@@ -65,26 +153,32 @@ function TikTokEventsOverlayContent() {
     const channel = pusher.subscribe("donation-stream");
 
     channel.bind("tiktok-live-event", (data: TikTokEventPayload) => {
-      console.log("Overlay received TikTok Live Event:", data);
+      if (!data || !data.id) return;
+      console.log("Overlay received TikTok Live Event:", data.eventType, data.nickname);
 
       setQueue((prev) => {
         // Prevent duplicate events
         if (prev.some((item) => item.id === data.id)) return prev;
 
-        const updated = [...prev, data];
-        // Anti-lag limit: Keep max 6 pending items so audio stays real-time
-        if (updated.length > 6) {
-          const gifts = updated.filter((x) => x.priority === 1);
-          const others = updated.filter((x) => x.priority > 1).slice(-4);
-          return [...gifts, ...others];
+        // SMART ANTI-COLLISION:
+        // If a viewer sends a 'chat' or 'gift', remove any pending 'join' greeting for that same viewer!
+        let filtered = prev;
+        if (data.eventType === "chat" || data.eventType === "gift") {
+          filtered = prev.filter(
+            (item) => !(item.eventType === "join" && item.uniqueId === data.uniqueId)
+          );
         }
 
-        // Sort: Gifts (priority 1) jump to front, others maintain chronological order
-        return updated.sort((a, b) => {
-          if (a.priority === 1 && b.priority !== 1) return -1;
-          if (b.priority === 1 && a.priority !== 1) return 1;
-          return 0;
-        });
+        // Anti-lag backlog trim: Keep maximum 5 pending events to stay real-time
+        let updated = [...filtered, data];
+        if (updated.length > 5) {
+          const gifts = updated.filter((x) => x.priority === 1);
+          const others = updated.filter((x) => x.priority > 1).slice(-3);
+          updated = [...gifts, ...others];
+        }
+
+        // Sort: Gifts (1) > Chat (2) > Follow/Share (3) > Join (4)
+        return updated.sort((a, b) => (a.priority || 4) - (b.priority || 4));
       });
     });
 
@@ -95,136 +189,99 @@ function TikTokEventsOverlayContent() {
     };
   }, []);
 
-  // 1. Pick next event when none is active
+  // Queue Consumer: Picks next item when idle
   useEffect(() => {
-    if (currentEvent === null && queue.length > 0 && !isExiting) {
+    if (currentEvent === null && queue.length > 0 && !isExiting && !isTransitioning) {
       const [nextItem, ...remaining] = queue;
+      setIsExiting(false);
       setCurrentEvent(nextItem);
       setQueue(remaining);
     }
-  }, [currentEvent, queue, isExiting]);
+  }, [currentEvent, queue, isExiting, isTransitioning]);
 
-  // 2. Play TTS and schedule auto-dismiss
+  // Active event display and TTS audio playback
   useEffect(() => {
     if (!currentEvent) {
       setIsExiting(false);
       activeEventIdRef.current = null;
       return;
     }
+    if (isPreview) return;
 
-    // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
+    // Guaranteed 100% visible from millisecond 0 (prevents opacity-0 race condition)
     setIsExiting(false);
     activeEventIdRef.current = currentEvent.id;
-    const eventId = currentEvent.id;
+    clearAllTimers();
+    stopAudio();
 
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-    }
+    const speechText = currentEvent.speechText || "";
 
-    const dismissEvent = (delay = 0) => {
-      if (dismissTimeoutRef.current) {
-        clearTimeout(dismissTimeoutRef.current);
-        dismissTimeoutRef.current = null;
-      }
-      if (delay > 0) {
-        dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), delay);
-        return;
-      }
-      setIsExiting(true);
-      setTimeout(() => {
-        // Only clear if this exact event is still the active one
-        if (activeEventIdRef.current === eventId) {
-          setCurrentEvent(null);
-          setIsExiting(false);
-          activeEventIdRef.current = null;
-        }
-      }, 250);
-    };
+    // 1. DYNAMIC WATCHDOG TIMER: Always guarantees the card auto-dismisses safely
+    const estimatedDuration = Math.min(
+      15000,
+      Math.max(5000, Math.ceil(speechText.length * 110) + 3000)
+    );
+    watchdogTimeoutRef.current = setTimeout(dismissCurrentEvent, estimatedDuration);
 
-    // Snappy safety fallback timer (join sapaan 4.5s max, gifts 7s max)
-    const watchdogTime = currentEvent.eventType === "join" ? 4500 : 7000;
-    dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), watchdogTime);
-
-    // Play TTS audio
-    const playEventTTS = (text: string) => {
+    // 2. PLAY TTS AUDIO VIA HTML5 AUDIO ELEMENT
+    if (speechText) {
       try {
-        const audioUrl = `/api/tts?text=${encodeURIComponent(text)}&t=${Date.now()}`;
-        let audio = audioRef.current;
-        if (!audio) {
-          audio = new Audio();
-          audioRef.current = audio;
-        }
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          audio.volume = 1.0;
 
-        audio.pause();
-        audio.src = audioUrl;
-        audio.volume = 1.0;
-
-        audio.onloadedmetadata = () => {
-          if (audio && audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-            const audioMs = Math.round(audio.duration * 1000);
-            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-            dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), audioMs + 1000);
-          }
-        };
-
-        audio.onended = () => {
-          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 800);
-        };
-
-        audio.onerror = () => {
-          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2000);
-        };
-
-        audio.onstalled = () => {
-          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
-        };
-
-        const playPromise = audio.play();
-        if (playPromise !== undefined) {
-          playPromise.catch((err) => {
-            console.warn("Audio autoplay blocked, using fallback dismiss:", err);
-            if ("speechSynthesis" in window) {
-              try {
-                window.speechSynthesis.cancel();
-                const utterance = new SpeechSynthesisUtterance(text);
-                utterance.lang = "id-ID";
-                utterance.rate = 1.05;
-                utterance.onend = () => {
-                  if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                  dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 800);
-                };
-                window.speechSynthesis.speak(utterance);
-              } catch {
-                if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
+          // When exact audio duration is loaded, adapt watchdog accurately
+          audio.onloadedmetadata = () => {
+            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+              const audioMs = Math.round(audio.duration * 1000);
+              if (watchdogTimeoutRef.current) {
+                clearTimeout(watchdogTimeoutRef.current);
               }
-            } else {
-              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-              dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
+              watchdogTimeoutRef.current = setTimeout(dismissCurrentEvent, audioMs + 2500);
             }
-          });
-        }
-      } catch (e) {
-        console.error("TTS trigger error:", e);
-        if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-        dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
-      }
-    };
+          };
 
-    if (currentEvent.speechText) {
-      playEventTTS(currentEvent.speechText);
+          // Audio finished cleanly: give smooth 700ms pause then dismiss
+          audio.onended = () => {
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+            dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 700);
+          };
+
+          audio.onerror = (e) => {
+            console.warn("TTS audio failed to load:", e);
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+            dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 1800);
+          };
+
+          audio.onstalled = () => {
+            console.warn("TTS audio stalled");
+            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+            dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 2000);
+          };
+
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              if (err.name === "AbortError") return;
+              console.warn("Audio autoplay blocked or interrupted:", err);
+              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+              dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 2000);
+            });
+          }
+        }
+      } catch (err) {
+        console.error("TTS playback error:", err);
+        if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+        dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 2000);
+      }
     } else {
-      if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 3000);
+      dismissTimeoutRef.current = setTimeout(dismissCurrentEvent, 3500);
     }
 
     return () => {
-      if (dismissTimeoutRef.current) {
-        clearTimeout(dismissTimeoutRef.current);
-      }
+      clearAllTimers();
+      stopAudio();
     };
   }, [currentEvent]);
 
@@ -260,7 +317,23 @@ function TikTokEventsOverlayContent() {
         return "bg-emerald-600/80 text-white border-emerald-400 font-bold";
       case "join":
       default:
-        return "bg-gray-800/80 text-yellow-300 border-gray-600 font-bold";
+        return "bg-gray-800 text-yellow-300 border-gray-600 font-bold";
+    }
+  };
+
+  const getBadgeLabel = (type: string) => {
+    switch (type) {
+      case "gift":
+        return "🎁 Gift Saweran";
+      case "chat":
+        return "💬 Live Chat";
+      case "follow":
+        return "➕ Follow Baru";
+      case "share":
+        return "📢 Share Live";
+      case "join":
+      default:
+        return "👋 Sapaan Join";
     }
   };
 
@@ -270,13 +343,7 @@ function TikTokEventsOverlayContent() {
     >
       <div
         style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
-        onClick={() => {
-          setIsExiting(true);
-          setTimeout(() => {
-            setCurrentEvent(null);
-            setIsExiting(false);
-          }, 200);
-        }}
+        onClick={dismissCurrentEvent}
         className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
           isExiting
             ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
@@ -284,19 +351,27 @@ function TikTokEventsOverlayContent() {
         }`}
       >
         {/* Saweria Style Floating Event Card */}
-        <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
-          {/* Header Badge & Nickname */}
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="text-2xl shrink-0">{currentEvent.badgeEmoji}</span>
-              <span className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
-                {currentEvent.nickname}
+        <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
+          {/* Header Meta: Emoji, Event Badge & TikTok Live indicator */}
+          <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
+              <span
+                className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle()}`}
+              >
+                {getBadgeLabel(currentEvent.eventType)}
               </span>
             </div>
-
-            <span className={`px-2.5 py-0.5 rounded-lg border text-xs tracking-wider uppercase shrink-0 shadow-sm ${getBadgeStyle()}`}>
-              {currentEvent.eventType}
+            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+              TikTok Live
             </span>
+          </div>
+
+          {/* Nickname: Full width, NEVER covered by badge! */}
+          <div className="pt-0.5">
+            <h3 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-tight break-words">
+              {currentEvent.nickname}
+            </h3>
           </div>
 
           {/* Event Content / Message */}

@@ -1,4 +1,5 @@
 import { pusherServer } from "@/lib/pusher";
+import { supabaseAdmin } from "@/lib/supabase";
 
 export type TikTokEventType = "join" | "chat" | "gift" | "follow" | "share";
 
@@ -27,34 +28,99 @@ export interface TikTokEventSettings {
   enableTts: boolean;
 }
 
-// In-memory settings attached to globalThis
+const DEFAULT_SETTINGS: TikTokEventSettings = {
+  enableJoin: true,
+  enableChat: true,
+  enableGift: true,
+  enableFollow: true,
+  enableShare: true,
+  enableTts: true,
+};
+
+// In-memory settings cache attached to globalThis
 const globalStore = globalThis as unknown as {
   __tiktokSettings?: TikTokEventSettings;
+  __tiktokSettingsCacheTime?: number;
 };
 
 if (!globalStore.__tiktokSettings) {
-  globalStore.__tiktokSettings = {
-    enableJoin: true,
-    enableChat: true,
-    enableGift: true,
-    enableFollow: true,
-    enableShare: true,
-    enableTts: true,
-  };
+  globalStore.__tiktokSettings = { ...DEFAULT_SETTINGS };
+  globalStore.__tiktokSettingsCacheTime = 0;
 }
 
-export function getTikTokSettings(): TikTokEventSettings {
-  return globalStore.__tiktokSettings!;
+const CACHE_TTL_MS = 15000; // 15s cache to avoid querying Supabase on every single incoming event packet
+
+export async function getTikTokSettings(): Promise<TikTokEventSettings> {
+  const now = Date.now();
+  // Return cached settings if still fresh within TTL
+  if (
+    globalStore.__tiktokSettings &&
+    globalStore.__tiktokSettingsCacheTime &&
+    now - globalStore.__tiktokSettingsCacheTime < CACHE_TTL_MS
+  ) {
+    return globalStore.__tiktokSettings;
+  }
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("tiktok_settings")
+      .select("*")
+      .eq("id", "default")
+      .maybeSingle();
+
+    if (!error && data) {
+      globalStore.__tiktokSettings = {
+        enableJoin: data.enable_join ?? true,
+        enableChat: data.enable_chat ?? true,
+        enableGift: data.enable_gift ?? true,
+        enableFollow: data.enable_follow ?? true,
+        enableShare: data.enable_share ?? true,
+        enableTts: data.enable_tts ?? true,
+      };
+      globalStore.__tiktokSettingsCacheTime = now;
+      return globalStore.__tiktokSettings;
+    }
+  } catch (err) {
+    console.warn("Could not load tiktok_settings from Supabase, using fallback cache:", err);
+  }
+
+  // Graceful fallback to in-memory store
+  return globalStore.__tiktokSettings || { ...DEFAULT_SETTINGS };
 }
 
-export function updateTikTokSettings(
+export async function updateTikTokSettings(
   partial: Partial<TikTokEventSettings>
-): TikTokEventSettings {
-  globalStore.__tiktokSettings = {
-    ...globalStore.__tiktokSettings!,
+): Promise<TikTokEventSettings> {
+  const current = globalStore.__tiktokSettings || { ...DEFAULT_SETTINGS };
+  const updated: TikTokEventSettings = {
+    ...current,
     ...partial,
   };
-  return globalStore.__tiktokSettings;
+
+  // Immediately update in-memory cache for zero-latency local lookups
+  globalStore.__tiktokSettings = updated;
+  globalStore.__tiktokSettingsCacheTime = Date.now();
+
+  try {
+    const { error } = await supabaseAdmin.from("tiktok_settings").upsert({
+      id: "default",
+      enable_join: updated.enableJoin,
+      enable_chat: updated.enableChat,
+      enable_gift: updated.enableGift,
+      enable_follow: updated.enableFollow,
+      enable_share: updated.enableShare,
+      enable_tts: updated.enableTts,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (error) {
+      console.warn("Warning: Failed to persist tiktok_settings to Supabase:", error.message);
+    }
+  } catch (err) {
+    console.warn("Exception updating tiktok_settings in Supabase:", err);
+  }
+
+  return updated;
 }
 
 /**
@@ -81,7 +147,7 @@ export function formatTikTokEvent(data: {
         eventType: "join",
         uniqueId: cleanId,
         nickname: cleanName,
-        speechText: `Halo ${cleanName}, selamat datang di live stream!`,
+        speechText: `Halo ${cleanName}, selamat datang!`,
         displayText: `${cleanName} bergabung ke stream!`,
         badgeEmoji: "👋",
         timestamp: nowIso,
@@ -100,7 +166,7 @@ export function formatTikTokEvent(data: {
         displayText: `"${cleanMsg}"`,
         badgeEmoji: "💬",
         timestamp: nowIso,
-        priority: 3,
+        priority: 2,
       };
     }
 

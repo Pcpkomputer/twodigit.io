@@ -421,8 +421,16 @@ function BundleOverlayContent() {
         if (isDuplicate) return;
 
         setEventQueue((prev) => {
-          const next = [...prev, data];
-          return next.slice(-8);
+          // SMART ANTI-COLLISION:
+          // If a viewer sends a 'chat' or 'gift', remove any pending 'join' greeting for that same viewer!
+          let filtered = prev;
+          if (data.eventType === "chat" || data.eventType === "gift") {
+            filtered = prev.filter(
+              (item) => !(item.eventType === "join" && item.uniqueId === data.uniqueId)
+            );
+          }
+          const next = [...filtered, data];
+          return next.slice(-6).sort((a, b) => (a.priority || 4) - (b.priority || 4));
         });
       });
     }
@@ -589,42 +597,41 @@ function BundleOverlayContent() {
     // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
     setIsEventExiting(false);
     activeEventIdRef.current = currentEvent.id;
-    const eventId = currentEvent.id;
 
     if (eventDismissTimerRef.current) {
       clearTimeout(eventDismissTimerRef.current);
+      eventDismissTimerRef.current = null;
     }
+    stopEventAudio();
 
-    const dismissEvent = (delay = 0) => {
+    const dismissEvent = () => {
       if (eventDismissTimerRef.current) {
         clearTimeout(eventDismissTimerRef.current);
         eventDismissTimerRef.current = null;
       }
-      if (delay > 0) {
-        eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), delay);
-        return;
-      }
+      stopEventAudio();
       setIsEventExiting(true);
+
       setTimeout(() => {
-        // Only clear if this exact event is still the active one
-        if (activeEventIdRef.current === eventId) {
-          setCurrentEvent(null);
-          setIsEventExiting(false);
-          activeEventIdRef.current = null;
-          stopEventAudio();
-        }
+        setCurrentEvent(null);
+        setIsEventExiting(false);
+        activeEventIdRef.current = null;
       }, 250);
     };
 
-    // Snappy, non-blocking watchdog timer (join sapaan finishes in 4.5s max, gifts 7s max)
-    const watchdogTime = currentEvent.eventType === "join" ? 4500 : 7000;
-    eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), watchdogTime);
+    const speechText = currentEvent.speechText || "";
+    // Dynamic non-blocking watchdog timer
+    const estimatedDuration = Math.min(
+      15000,
+      Math.max(5000, Math.ceil(speechText.length * 110) + 3000)
+    );
+    eventDismissTimerRef.current = setTimeout(dismissEvent, estimatedDuration);
 
-    if (currentEvent.speechText) {
+    if (speechText) {
       try {
         const audio = eventAudioRef.current;
         if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(currentEvent.speechText)}&t=${Date.now()}`;
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
 
           // When exact audio length is known, adapt dismiss time accurately
@@ -632,41 +639,46 @@ function BundleOverlayContent() {
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
               if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), audioMs + 1000);
+              eventDismissTimerRef.current = setTimeout(dismissEvent, audioMs + 2500);
             }
           };
 
           audio.onended = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 800);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 700);
           };
 
           audio.onerror = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 2000);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 1800);
           };
 
           audio.onstalled = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 2500);
+            eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
           };
 
-          audio.play().catch(() => {
-            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
-          });
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              if (err.name === "AbortError") return;
+              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+              eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+            });
+          }
         }
       } catch {
         if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-        eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
+        eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
       }
     } else {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-      eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
+      eventDismissTimerRef.current = setTimeout(dismissEvent, 3000);
     }
 
     return () => {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+      stopEventAudio();
     };
   }, [currentEvent]);
 
@@ -832,7 +844,23 @@ function BundleOverlayContent() {
         return "bg-emerald-600/80 text-white border-emerald-400 font-bold";
       case "join":
       default:
-        return "bg-gray-800/80 text-yellow-300 border-gray-600 font-bold";
+        return "bg-gray-800 text-yellow-300 border-gray-600 font-bold";
+    }
+  };
+
+  const getBadgeLabel = (type: string) => {
+    switch (type) {
+      case "gift":
+        return "🎁 Gift Saweran";
+      case "chat":
+        return "💬 Live Chat";
+      case "follow":
+        return "➕ Follow Baru";
+      case "share":
+        return "📢 Share Live";
+      case "join":
+      default:
+        return "👋 Sapaan Join";
     }
   };
 
@@ -931,23 +959,29 @@ function BundleOverlayContent() {
             }`}
           >
             {/* Saweria Style Floating Event Card */}
-            <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
-              {/* Header Badge & Nickname */}
-              <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className="text-2xl shrink-0">{currentEvent.badgeEmoji}</span>
-                  <span className="saweria-text-yellow text-xl md:text-2xl uppercase font-black truncate">
-                    {currentEvent.nickname}
+            <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
+              {/* Header Meta: Emoji, Event Badge & TikTok Live indicator */}
+              <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle(
+                      currentEvent.eventType
+                    )}`}
+                  >
+                    {getBadgeLabel(currentEvent.eventType)}
                   </span>
                 </div>
-
-                <span
-                  className={`px-2.5 py-0.5 rounded-lg border text-xs tracking-wider uppercase shrink-0 shadow-sm ${getBadgeStyle(
-                    currentEvent.eventType
-                  )}`}
-                >
-                  {currentEvent.eventType}
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                  TikTok Live
                 </span>
+              </div>
+
+              {/* Nickname: Full width, NEVER covered by badge! */}
+              <div className="pt-0.5">
+                <h3 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-tight break-words">
+                  {currentEvent.nickname}
+                </h3>
               </div>
 
               {/* Event Content / Message */}

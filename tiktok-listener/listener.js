@@ -311,6 +311,10 @@ tiktokLiveConnection.on("chat", async (data) => {
   // -----------------------------------------------------------
   if (comment && comment.length <= 100) {
     console.log(`💬 [CHAT LIVE] @${userId} (${nickname}): "${comment}"`);
+    // Tandai user sudah aktif chat: JANGAN kirim sapaan join lagi untuk user ini
+    welcomedUserTimestamps.set(userId, now);
+    lastChatEventTime = now;
+
     sendTikTokEvent({
       eventType: "chat",
       uniqueId: userId,
@@ -326,6 +330,7 @@ tiktokLiveConnection.on("chat", async (data) => {
 // Simpan timestamp kapan user terakhir disapa (deduplikasi 10 menit per user)
 const welcomedUserTimestamps = new Map();
 let lastJoinWelcomeTime = 0;
+let lastChatEventTime = 0;
 
 tiktokLiveConnection.on("member", async (data) => {
   // Abaikan event member dari riwayat sebelum listener terhubung
@@ -345,8 +350,14 @@ tiktokLiveConnection.on("member", async (data) => {
     return;
   }
 
-  // Throttle: Jeda minimal 4 detik antar sapaan join agar TTS mengalir santai
-  if (now - lastJoinWelcomeTime < 4000) {
+  // ANTI-COLLISION: Jika baru saja ada chat komentar dalam 3 detik terakhir,
+  // tahan/abaikan sapaan join agar tidak bertabrakan dengan chat penonton!
+  if (now - lastChatEventTime < 3500) {
+    return;
+  }
+
+  // Throttle: Jeda minimal 5 detik antar sapaan join agar TTS tidak saling tumpang tindih
+  if (now - lastJoinWelcomeTime < 5000) {
     return;
   }
 

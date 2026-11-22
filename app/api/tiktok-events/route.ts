@@ -34,7 +34,7 @@ const isAuthorized = (request: NextRequest) => {
 };
 
 export async function GET() {
-  const settings = getTikTokSettings();
+  const settings = await getTikTokSettings();
   return NextResponse.json({
     success: true,
     settings,
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest) {
     }
 
     const body = await request.json();
-    const updated = updateTikTokSettings(body);
+    const updated = await updateTikTokSettings(body);
 
     return NextResponse.json({
       success: true,
@@ -87,7 +87,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Check streamer toggles
-    const settings = getTikTokSettings();
+    const settings = await getTikTokSettings();
     if (eventType === "join" && !settings.enableJoin) {
       return NextResponse.json({ success: true, ignored: true, reason: "Join TTS disabled" });
     }

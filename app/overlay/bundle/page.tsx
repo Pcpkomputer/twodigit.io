@@ -149,8 +149,24 @@ function BundleOverlayContent() {
   const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Direct DOM ref for synchronized, pixel-perfect countdown bar animation
-  const chatProgressBarRef = useRef<HTMLDivElement | null>(null);
+  // State-driven countdown progress (0% to 100%) guaranteed to hit exactly 0.0%
+  const [chatProgress, setChatProgress] = useState<number>(100);
+  const chatProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const chatTimingStateRef = useRef<{
+    phase: "speaking" | "gliding";
+    startTime: number;
+    totalDuration: number;
+    glideStartTime: number;
+    glideStartPct: number;
+    latestPct: number;
+  }>({
+    phase: "speaking",
+    startTime: 0,
+    totalDuration: 6000,
+    glideStartTime: 0,
+    glideStartPct: 100,
+    latestPct: 100,
+  });
 
   // Dismiss timers
   const alertDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -597,8 +613,13 @@ function BundleOverlayContent() {
   useEffect(() => {
     if (!currentChat || isPreview) return;
 
+    if (chatProgressIntervalRef.current) {
+      clearInterval(chatProgressIntervalRef.current);
+      chatProgressIntervalRef.current = null;
+    }
     if (chatDismissTimerRef.current) {
       clearTimeout(chatDismissTimerRef.current);
+      chatDismissTimerRef.current = null;
     }
 
     const estimatedDuration = Math.min(
@@ -606,17 +627,22 @@ function BundleOverlayContent() {
       Math.max(5000, Math.ceil(currentChat.message.length * 115) + 3500)
     );
     setIsChatSpeaking(true);
+    setChatProgress(100);
 
-    // Initial reset of progress bar to 100%
-    if (chatProgressBarRef.current) {
-      chatProgressBarRef.current.style.transition = "none";
-      chatProgressBarRef.current.style.width = "100%";
-      void chatProgressBarRef.current.offsetWidth; // Force synchronous reflow
-      chatProgressBarRef.current.style.transition = `width ${estimatedDuration}ms linear`;
-      chatProgressBarRef.current.style.width = "0%";
-    }
+    chatTimingStateRef.current = {
+      phase: "speaking",
+      startTime: Date.now(),
+      totalDuration: estimatedDuration,
+      glideStartTime: 0,
+      glideStartPct: 100,
+      latestPct: 100,
+    };
 
     const dismissChat = () => {
+      if (chatProgressIntervalRef.current) {
+        clearInterval(chatProgressIntervalRef.current);
+        chatProgressIntervalRef.current = null;
+      }
       if (chatDismissTimerRef.current) {
         clearTimeout(chatDismissTimerRef.current);
         chatDismissTimerRef.current = null;
@@ -626,8 +652,39 @@ function BundleOverlayContent() {
       setCurrentChat(null);
     };
 
-    // Watchdog fallback timer
-    chatDismissTimerRef.current = setTimeout(dismissChat, estimatedDuration);
+    const triggerGlide = () => {
+      setIsChatSpeaking(false);
+      if (chatTimingStateRef.current.phase !== "gliding") {
+        chatTimingStateRef.current.phase = "gliding";
+        chatTimingStateRef.current.glideStartTime = Date.now();
+        chatTimingStateRef.current.glideStartPct = chatTimingStateRef.current.latestPct;
+      }
+    };
+
+    // 25ms interval loop mathematically guaranteed to reach exactly 0.0% before dismiss
+    chatProgressIntervalRef.current = setInterval(() => {
+      const state = chatTimingStateRef.current;
+      if (state.phase === "speaking") {
+        const elapsed = Date.now() - state.startTime;
+        const pct = Math.max(10, 100 - (elapsed / state.totalDuration) * 90);
+        state.latestPct = pct;
+        setChatProgress(pct);
+
+        if (elapsed > state.totalDuration + 4000) {
+          triggerGlide();
+        }
+      } else if (state.phase === "gliding") {
+        const elapsedGlide = Date.now() - state.glideStartTime;
+        const glideDuration = 1500;
+        const pct = Math.max(0, state.glideStartPct * (1 - elapsedGlide / glideDuration));
+        state.latestPct = pct;
+        setChatProgress(pct);
+
+        if (pct <= 0) {
+          dismissChat();
+        }
+      }
+    }, 25);
 
     if (currentChat.message) {
       try {
@@ -637,73 +694,44 @@ function BundleOverlayContent() {
           audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
           audio.volume = 1.0;
 
-          // When audio length is known, synchronize the progress bar and timer to reach exactly 0%
           audio.onloadedmetadata = () => {
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
-              const postSpeechDelay = 1500;
-              const totalRemainingMs = audioMs + postSpeechDelay;
-
-              if (chatProgressBarRef.current) {
-                chatProgressBarRef.current.style.transition = `width ${totalRemainingMs}ms linear`;
-                chatProgressBarRef.current.style.width = "0%";
-              }
-
-              if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-              chatDismissTimerRef.current = setTimeout(dismissChat, totalRemainingMs);
+              const elapsed = Date.now() - chatTimingStateRef.current.startTime;
+              chatTimingStateRef.current.totalDuration = elapsed + audioMs + 1500;
             }
           };
 
           audio.onended = () => {
-            setIsChatSpeaking(false);
-            // Speech finished cleanly: smoothly glide remaining bar to 0% over 1.5s
-            if (chatProgressBarRef.current) {
-              chatProgressBarRef.current.style.transition = "width 1500ms linear";
-              chatProgressBarRef.current.style.width = "0%";
-            }
-            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-            chatDismissTimerRef.current = setTimeout(dismissChat, 1500);
+            triggerGlide();
           };
 
           audio.onerror = () => {
-            setIsChatSpeaking(false);
-            if (chatProgressBarRef.current) {
-              chatProgressBarRef.current.style.transition = "width 2000ms linear";
-              chatProgressBarRef.current.style.width = "0%";
-            }
-            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-            chatDismissTimerRef.current = setTimeout(dismissChat, 2000);
+            triggerGlide();
           };
 
           audio.onstalled = () => {
-            setIsChatSpeaking(false);
-            if (chatProgressBarRef.current) {
-              chatProgressBarRef.current.style.transition = "width 2500ms linear";
-              chatProgressBarRef.current.style.width = "0%";
-            }
-            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-            chatDismissTimerRef.current = setTimeout(dismissChat, 2500);
+            triggerGlide();
           };
 
           audio.play().catch(() => {
-            setIsChatSpeaking(false);
-            if (chatProgressBarRef.current) {
-              chatProgressBarRef.current.style.transition = "width 3000ms linear";
-              chatProgressBarRef.current.style.width = "0%";
-            }
-            if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-            chatDismissTimerRef.current = setTimeout(dismissChat, 3000);
+            triggerGlide();
           });
         }
       } catch {
-        setIsChatSpeaking(false);
-        if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-        chatDismissTimerRef.current = setTimeout(dismissChat, 3000);
+        triggerGlide();
       }
     }
 
     return () => {
-      if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
+      if (chatProgressIntervalRef.current) {
+        clearInterval(chatProgressIntervalRef.current);
+        chatProgressIntervalRef.current = null;
+      }
+      if (chatDismissTimerRef.current) {
+        clearTimeout(chatDismissTimerRef.current);
+        chatDismissTimerRef.current = null;
+      }
       setIsChatSpeaking(false);
     };
   }, [currentChat]);
@@ -946,9 +974,8 @@ function BundleOverlayContent() {
               {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
               <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
                 <div
-                  ref={chatProgressBarRef}
                   className="bg-yellow-400 h-full origin-left rounded-full"
-                  style={{ width: "100%" }}
+                  style={{ width: `${Math.max(0, Math.min(100, chatProgress)).toFixed(1)}%` }}
                 />
               </div>
             </div>

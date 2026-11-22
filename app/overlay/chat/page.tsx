@@ -26,9 +26,26 @@ function ChatOverlayContent() {
   const [queue, setQueue] = useState<InteractiveChatMessage[]>([]);
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [displayDuration, setDisplayDuration] = useState<number>(5000);
+  const [progress, setProgress] = useState<number>(100);
 
-  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
-  const progressBarRef = useRef<HTMLDivElement | null>(null);
+  // Single persistent audio instance (zero memory leak in OBS)
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
+  const progressIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const chatTimingStateRef = useRef<{
+    phase: "speaking" | "gliding";
+    startTime: number;
+    totalDuration: number;
+    glideStartTime: number;
+    glideStartPct: number;
+    latestPct: number;
+  }>({
+    phase: "speaking",
+    startTime: 0,
+    totalDuration: 6000,
+    glideStartTime: 0,
+    glideStartPct: 100,
+    latestPct: 100,
+  });
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const audioTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -41,15 +58,17 @@ function ChatOverlayContent() {
       clearTimeout(audioTimeoutRef.current);
       audioTimeoutRef.current = null;
     }
-    if (currentAudioRef.current) {
-      currentAudioRef.current.onended = null;
-      currentAudioRef.current.onerror = null;
-      currentAudioRef.current.onpause = null;
+    if (ttsAudioRef.current) {
+      ttsAudioRef.current.onended = null;
+      ttsAudioRef.current.onerror = null;
+      ttsAudioRef.current.onpause = null;
+      ttsAudioRef.current.onloadedmetadata = null;
+      ttsAudioRef.current.onstalled = null;
       try {
-        currentAudioRef.current.pause();
-        currentAudioRef.current.src = "";
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.removeAttribute("src");
+        ttsAudioRef.current.load();
       } catch {}
-      currentAudioRef.current = null;
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
@@ -59,6 +78,10 @@ function ChatOverlayContent() {
   };
 
   const clearAllTimers = () => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
     if (dismissTimerRef.current) {
       clearTimeout(dismissTimerRef.current);
       dismissTimerRef.current = null;
@@ -92,6 +115,10 @@ function ChatOverlayContent() {
 
   // Initialize and unlock audio element on mount
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      ttsAudioRef.current = new Audio();
+    }
+
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
@@ -118,6 +145,11 @@ function ChatOverlayContent() {
       window.removeEventListener("keydown", unlockAudio);
       clearAllTimers();
       stopAudio();
+      if (ttsAudioRef.current) {
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.removeAttribute("src");
+        ttsAudioRef.current = null;
+      }
     };
   }, []);
 
@@ -155,12 +187,17 @@ function ChatOverlayContent() {
     }, 6000);
 
     try {
+      const audio = ttsAudioRef.current;
+      if (!audio) {
+        triggerEnd();
+        return;
+      }
+
       const voiceParam = voiceName ? `&voice=${encodeURIComponent(voiceName)}` : "&voice=schoolgirl";
       const audioUrl = `/api/tts?text=${encodeURIComponent(text)}${voiceParam}&t=${Date.now()}`;
-      const audio = new Audio(audioUrl);
       audio.crossOrigin = "anonymous";
       audio.volume = 1.0;
-      currentAudioRef.current = audio;
+      audio.src = audioUrl;
 
       // When audio metadata is parsed, adapt timers to the EXACT audio length!
       audio.onloadedmetadata = () => {
@@ -264,6 +301,7 @@ function ChatOverlayContent() {
 
     clearAllTimers();
     setIsExiting(false);
+    setProgress(100);
 
     const speechText = currentChat.message;
 
@@ -274,54 +312,64 @@ function ChatOverlayContent() {
     );
     setDisplayDuration(estimatedDuration);
 
-    // Initial reset of progress bar to 100%
-    if (progressBarRef.current) {
-      progressBarRef.current.style.transition = "none";
-      progressBarRef.current.style.width = "100%";
-      void progressBarRef.current.offsetWidth; // Force synchronous reflow
-      progressBarRef.current.style.transition = `width ${estimatedDuration}ms linear`;
-      progressBarRef.current.style.width = "0%";
-    }
+    chatTimingStateRef.current = {
+      phase: "speaking",
+      startTime: Date.now(),
+      totalDuration: estimatedDuration,
+      glideStartTime: 0,
+      glideStartPct: 100,
+      latestPct: 100,
+    };
 
-    // 1. HARD WATCHDOG TIMER: Always guarantees the popup closes even under heavy load / OBS background freeze
-    watchdogTimerRef.current = setTimeout(() => {
-      console.log("Watchdog dismiss triggered for chat:", currentChat.id);
-      dismissChat();
-    }, estimatedDuration);
+    const triggerGlide = () => {
+      setIsSpeaking(false);
+      if (chatTimingStateRef.current.phase !== "gliding") {
+        chatTimingStateRef.current.phase = "gliding";
+        chatTimingStateRef.current.glideStartTime = Date.now();
+        chatTimingStateRef.current.glideStartPct = chatTimingStateRef.current.latestPct;
+      }
+    };
 
-    // 2. Play TTS audio and dynamically adapt to the exact audio duration
+    // 25ms interval loop mathematically guaranteed to reach exactly 0.0% before dismiss
+    progressIntervalRef.current = setInterval(() => {
+      const state = chatTimingStateRef.current;
+      if (state.phase === "speaking") {
+        const elapsed = Date.now() - state.startTime;
+        const pct = Math.max(10, 100 - (elapsed / state.totalDuration) * 90);
+        state.latestPct = pct;
+        setProgress(pct);
+
+        if (elapsed > state.totalDuration + 4000) {
+          triggerGlide();
+        }
+      } else if (state.phase === "gliding") {
+        const elapsedGlide = Date.now() - state.glideStartTime;
+        const glideDuration = 1500;
+        const pct = Math.max(0, state.glideStartPct * (1 - elapsedGlide / glideDuration));
+        state.latestPct = pct;
+        setProgress(pct);
+
+        if (pct <= 0) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          dismissChat();
+        }
+      }
+    }, 25);
+
+    // Play TTS audio and dynamically adapt to the exact audio duration
     playTTS(
       speechText,
       // onEnded:
       () => {
-        // Audio finished cleanly: smoothly glide remaining bar to 0% over 1.5s
-        const postSpeechDelay = 1500;
-        if (progressBarRef.current) {
-          progressBarRef.current.style.transition = `width ${postSpeechDelay}ms linear`;
-          progressBarRef.current.style.width = "0%";
-        }
-        dismissTimerRef.current = setTimeout(() => {
-          dismissChat();
-        }, postSpeechDelay);
+        triggerGlide();
       },
       // onDurationKnown:
       (audioMs) => {
-        // Update countdown bar to match actual audio duration + 1.5s reading buffer
-        const totalDuration = audioMs + 1500;
-        setDisplayDuration(totalDuration);
-
-        if (progressBarRef.current) {
-          progressBarRef.current.style.transition = `width ${totalDuration}ms linear`;
-          progressBarRef.current.style.width = "0%";
-        }
-
-        // Adjust watchdog so it generously covers full speech + 3s safety margin
-        if (watchdogTimerRef.current) {
-          clearTimeout(watchdogTimerRef.current);
-        }
-        watchdogTimerRef.current = setTimeout(() => {
-          dismissChat();
-        }, totalDuration + 2000);
+        const elapsed = Date.now() - chatTimingStateRef.current.startTime;
+        chatTimingStateRef.current.totalDuration = elapsed + audioMs + 1500;
       },
       currentChat.voice || "schoolgirl"
     );
@@ -401,9 +449,8 @@ function ChatOverlayContent() {
             {/* Visual Lifetime Countdown Bar (Always cleanly hits 0% width) */}
             <div className="w-full bg-yellow-400/20 h-1 rounded-full overflow-hidden mt-1">
               <div
-                ref={progressBarRef}
                 className="bg-yellow-400 h-full origin-left rounded-full"
-                style={{ width: "100%" }}
+                style={{ width: `${Math.max(0, Math.min(100, progress)).toFixed(1)}%` }}
               />
             </div>
           </div>

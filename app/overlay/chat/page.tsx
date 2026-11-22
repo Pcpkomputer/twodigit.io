@@ -358,7 +358,7 @@ function ChatOverlayContent() {
           }`}
         >
           {/* Streamer Speech Card */}
-          <div className="bg-black/85 backdrop-blur-md rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
+          <div className="bg-black/85 backdrop-blur-none rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
             {/* Header: Badge, Sender Name, & Audio Wave Animation */}
             <div className="flex items-center justify-between gap-3">
               <div className="flex items-center gap-2 min-w-0">

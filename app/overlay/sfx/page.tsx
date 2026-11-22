@@ -27,12 +27,15 @@ function SfxOverlayContent() {
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const lastTriggerRef = useRef<{ id: string; sfxId: string; time: number } | null>(null);
 
-  // Stop any active audio
+  // Stop any active audio and release decoder resources
   const stopAudio = () => {
     if (currentAudioRef.current) {
+      currentAudioRef.current.onended = null;
+      currentAudioRef.current.onerror = null;
       try {
         currentAudioRef.current.pause();
         currentAudioRef.current.currentTime = 0;
+        currentAudioRef.current.src = "";
       } catch (e) {
         // Ignore audio stop errors
       }

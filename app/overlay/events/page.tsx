@@ -16,6 +16,7 @@ function TikTokEventsOverlayContent() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const activeEventIdRef = useRef<string | null>(null);
 
   // Initialize and unlock audio on mount
   useEffect(() => {
@@ -105,7 +106,16 @@ function TikTokEventsOverlayContent() {
 
   // 2. Play TTS and schedule auto-dismiss
   useEffect(() => {
-    if (!currentEvent) return;
+    if (!currentEvent) {
+      setIsExiting(false);
+      activeEventIdRef.current = null;
+      return;
+    }
+
+    // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
+    setIsExiting(false);
+    activeEventIdRef.current = currentEvent.id;
+    const eventId = currentEvent.id;
 
     if (dismissTimeoutRef.current) {
       clearTimeout(dismissTimeoutRef.current);
@@ -122,8 +132,12 @@ function TikTokEventsOverlayContent() {
       }
       setIsExiting(true);
       setTimeout(() => {
-        setCurrentEvent(null);
-        setIsExiting(false);
+        // Only clear if this exact event is still the active one
+        if (activeEventIdRef.current === eventId) {
+          setCurrentEvent(null);
+          setIsExiting(false);
+          activeEventIdRef.current = null;
+        }
       }, 250);
     };
 

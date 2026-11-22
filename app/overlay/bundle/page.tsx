@@ -161,6 +161,10 @@ function BundleOverlayContent() {
   const chatDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sfxDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Active item tracking refs to prevent async dismiss race conditions
+  const activeEventIdRef = useRef<string | null>(null);
+  const activeChatIdRef = useRef<string | null>(null);
+
   // Bounded LRU Deduplication Sets (Max 100 items to guarantee zero memory growth)
   const processedOrderIdsRef = useRef<Set<string>>(new Set());
   const processedEventIdsRef = useRef<Set<string>>(new Set());
@@ -247,10 +251,15 @@ function BundleOverlayContent() {
     setIsChatSpeaking(false);
     stopChatAudio();
     setIsChatExiting(true);
+    const targetChatId = activeChatIdRef.current;
 
     setTimeout(() => {
-      setCurrentChat(null);
-      setIsChatExiting(false);
+      // Only clear if this exact chat is still the active one
+      if (!targetChatId || activeChatIdRef.current === targetChatId) {
+        setCurrentChat(null);
+        setIsChatExiting(false);
+        activeChatIdRef.current = null;
+      }
     }, 300);
   };
 
@@ -570,7 +579,17 @@ function BundleOverlayContent() {
 
   // TikTok Live Events TTS Player & Guaranteed Auto-Dismiss
   useEffect(() => {
-    if (!currentEvent || isPreview) return;
+    if (!currentEvent) {
+      setIsEventExiting(false);
+      activeEventIdRef.current = null;
+      return;
+    }
+    if (isPreview) return;
+
+    // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
+    setIsEventExiting(false);
+    activeEventIdRef.current = currentEvent.id;
+    const eventId = currentEvent.id;
 
     if (eventDismissTimerRef.current) {
       clearTimeout(eventDismissTimerRef.current);
@@ -587,9 +606,13 @@ function BundleOverlayContent() {
       }
       setIsEventExiting(true);
       setTimeout(() => {
-        setCurrentEvent(null);
-        setIsEventExiting(false);
-        stopEventAudio();
+        // Only clear if this exact event is still the active one
+        if (activeEventIdRef.current === eventId) {
+          setCurrentEvent(null);
+          setIsEventExiting(false);
+          activeEventIdRef.current = null;
+          stopEventAudio();
+        }
       }, 250);
     };
 
@@ -671,7 +694,15 @@ function BundleOverlayContent() {
 
   // Interactive Host Chat TTS Player & Synchronized Countdown Bar Dismissal
   useEffect(() => {
-    if (!currentChat || isPreview) return;
+    if (!currentChat) {
+      setIsChatExiting(false);
+      activeChatIdRef.current = null;
+      return;
+    }
+    if (isPreview) return;
+
+    setIsChatExiting(false);
+    activeChatIdRef.current = currentChat.id;
 
     if (chatDismissTimerRef.current) {
       clearTimeout(chatDismissTimerRef.current);

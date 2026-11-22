@@ -129,6 +129,7 @@ function BundleOverlayContent() {
   // State: TikTok Events (TTS Sapaan & Live Chat)
   const [currentEvent, setCurrentEvent] = useState<TikTokEventPayload | null>(null);
   const [eventQueue, setEventQueue] = useState<TikTokEventPayload[]>([]);
+  const [isEventExiting, setIsEventExiting] = useState<boolean>(false);
 
   // State: Host Interactive Chat & Announcement
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
@@ -520,16 +521,17 @@ function BundleOverlayContent() {
     };
   }, [currentAlert]);
 
-  // TikTok Live Events Queue Processor
+  // TikTok Live Events Queue Processor (Coordinates with Host Chat so they never collide)
   useEffect(() => {
-    if (currentEvent === null && eventQueue.length > 0) {
+    // Hold off popping a new event while host chat is active or previous event is fading out
+    if (currentEvent === null && eventQueue.length > 0 && !isEventExiting && currentChat === null) {
       const [nextEvent, ...remaining] = eventQueue;
       setCurrentEvent(nextEvent);
       setEventQueue(remaining);
     }
-  }, [currentEvent, eventQueue]);
+  }, [currentEvent, eventQueue, isEventExiting, currentChat]);
 
-  // TikTok Live Events TTS Player & Bulletproof Auto-Dismiss
+  // TikTok Live Events TTS Player & Guaranteed Auto-Dismiss
   useEffect(() => {
     if (!currentEvent || isPreview) return;
 
@@ -537,17 +539,26 @@ function BundleOverlayContent() {
       clearTimeout(eventDismissTimerRef.current);
     }
 
-    const dismissEvent = () => {
+    const dismissEvent = (delay = 0) => {
       if (eventDismissTimerRef.current) {
         clearTimeout(eventDismissTimerRef.current);
         eventDismissTimerRef.current = null;
       }
-      setCurrentEvent(null);
-      stopEventAudio();
+      if (delay > 0) {
+        eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), delay);
+        return;
+      }
+      setIsEventExiting(true);
+      setTimeout(() => {
+        setCurrentEvent(null);
+        setIsEventExiting(false);
+        stopEventAudio();
+      }, 250);
     };
 
-    // Unbreakable safety watchdog timer (guarantees dismiss even if audio fails or double event collides)
-    eventDismissTimerRef.current = setTimeout(dismissEvent, 9000);
+    // Snappy, non-blocking watchdog timer (join sapaan finishes in 4.5s max, gifts 7s max)
+    const watchdogTime = currentEvent.eventType === "join" ? 4500 : 7000;
+    eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), watchdogTime);
 
     if (currentEvent.speechText) {
       try {
@@ -561,37 +572,37 @@ function BundleOverlayContent() {
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
               if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(dismissEvent, audioMs + 1800);
+              eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), audioMs + 1000);
             }
           };
 
           audio.onended = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 1200);
+            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 800);
           };
 
           audio.onerror = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 2000);
           };
 
           audio.onstalled = () => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 2500);
+            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 2500);
           };
 
           audio.play().catch(() => {
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 3500);
+            eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
           });
         }
       } catch {
         if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-        eventDismissTimerRef.current = setTimeout(dismissEvent, 3500);
+        eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
       }
     } else {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-      eventDismissTimerRef.current = setTimeout(dismissEvent, 4000);
+      eventDismissTimerRef.current = setTimeout(() => dismissEvent(0), 3000);
     }
 
     return () => {
@@ -599,14 +610,25 @@ function BundleOverlayContent() {
     };
   }, [currentEvent]);
 
-  // Interactive Host Chat Queue Processor
+  // Interactive Host Chat Queue Processor (Priority over join sapaan)
   useEffect(() => {
-    if (currentChat === null && chatQueue.length > 0) {
+    // If streamer sends interactive chat while sapaan is active, fast-track sapaan exit cleanly
+    if (chatQueue.length > 0 && currentEvent && !isEventExiting) {
+      if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+      setIsEventExiting(true);
+      setTimeout(() => {
+        setCurrentEvent(null);
+        setIsEventExiting(false);
+        stopEventAudio();
+      }, 250);
+    }
+
+    if (currentChat === null && chatQueue.length > 0 && currentEvent === null) {
       const [nextChat, ...remaining] = chatQueue;
       setCurrentChat(nextChat);
       setChatQueue(remaining);
     }
-  }, [currentChat, chatQueue]);
+  }, [currentChat, chatQueue, currentEvent, isEventExiting]);
 
   // Interactive Host Chat TTS Player & Synchronized Countdown Bar Dismissal
   useEffect(() => {
@@ -862,12 +884,18 @@ function BundleOverlayContent() {
           <div
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
-              setCurrentEvent(null);
-              stopEventAudio();
+              setIsEventExiting(true);
+              setTimeout(() => {
+                setCurrentEvent(null);
+                setIsEventExiting(false);
+                stopEventAudio();
+              }, 200);
             }}
-            className={`w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
-              eventsPos === chatPos && currentChat ? "mb-44 md:mb-48" : ""
-            }`}
+            className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
+              isEventExiting
+                ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+                : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+            } ${eventsPos === chatPos && currentChat ? "mb-44 md:mb-48" : ""}`}
           >
             {/* Saweria Style Floating Event Card */}
             <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">

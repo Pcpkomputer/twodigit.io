@@ -12,6 +12,7 @@ function TikTokEventsOverlayContent() {
 
   const [currentEvent, setCurrentEvent] = useState<TikTokEventPayload | null>(null);
   const [queue, setQueue] = useState<TikTokEventPayload[]>([]);
+  const [isExiting, setIsExiting] = useState<boolean>(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -95,12 +96,12 @@ function TikTokEventsOverlayContent() {
 
   // 1. Pick next event when none is active
   useEffect(() => {
-    if (currentEvent === null && queue.length > 0) {
+    if (currentEvent === null && queue.length > 0 && !isExiting) {
       const [nextItem, ...remaining] = queue;
       setCurrentEvent(nextItem);
       setQueue(remaining);
     }
-  }, [currentEvent, queue]);
+  }, [currentEvent, queue, isExiting]);
 
   // 2. Play TTS and schedule auto-dismiss
   useEffect(() => {
@@ -110,16 +111,25 @@ function TikTokEventsOverlayContent() {
       clearTimeout(dismissTimeoutRef.current);
     }
 
-    const dismissEvent = () => {
+    const dismissEvent = (delay = 0) => {
       if (dismissTimeoutRef.current) {
         clearTimeout(dismissTimeoutRef.current);
         dismissTimeoutRef.current = null;
       }
-      setCurrentEvent(null);
+      if (delay > 0) {
+        dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), delay);
+        return;
+      }
+      setIsExiting(true);
+      setTimeout(() => {
+        setCurrentEvent(null);
+        setIsExiting(false);
+      }, 250);
     };
 
-    // Safety fallback timer (8s max) in case audio fails or double event collides
-    dismissTimeoutRef.current = setTimeout(dismissEvent, 8000);
+    // Snappy safety fallback timer (join sapaan 4.5s max, gifts 7s max)
+    const watchdogTime = currentEvent.eventType === "join" ? 4500 : 7000;
+    dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), watchdogTime);
 
     // Play TTS audio
     const playEventTTS = (text: string) => {
@@ -139,23 +149,23 @@ function TikTokEventsOverlayContent() {
           if (audio && audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
             const audioMs = Math.round(audio.duration * 1000);
             if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-            dismissTimeoutRef.current = setTimeout(dismissEvent, audioMs + 1800);
+            dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), audioMs + 1000);
           }
         };
 
         audio.onended = () => {
           if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(dismissEvent, 1200);
+          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 800);
         };
 
         audio.onerror = () => {
           if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(dismissEvent, 2000);
+          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2000);
         };
 
         audio.onstalled = () => {
           if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(dismissEvent, 2500);
+          dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
         };
 
         const playPromise = audio.play();
@@ -170,23 +180,23 @@ function TikTokEventsOverlayContent() {
                 utterance.rate = 1.05;
                 utterance.onend = () => {
                   if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                  dismissTimeoutRef.current = setTimeout(dismissEvent, 1200);
+                  dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 800);
                 };
                 window.speechSynthesis.speak(utterance);
               } catch {
                 if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
+                dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
               }
             } else {
               if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-              dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
+              dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
             }
           });
         }
       } catch (e) {
         console.error("TTS trigger error:", e);
         if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-        dismissTimeoutRef.current = setTimeout(dismissEvent, 3000);
+        dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 2500);
       }
     };
 
@@ -194,7 +204,7 @@ function TikTokEventsOverlayContent() {
       playEventTTS(currentEvent.speechText);
     } else {
       if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = setTimeout(dismissEvent, 4000);
+      dismissTimeoutRef.current = setTimeout(() => dismissEvent(0), 3000);
     }
 
     return () => {
@@ -246,8 +256,18 @@ function TikTokEventsOverlayContent() {
     >
       <div
         style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
-        onClick={() => setCurrentEvent(null)}
-        className="w-full max-w-md animate-in fade-in slide-in-from-bottom-5 duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer"
+        onClick={() => {
+          setIsExiting(true);
+          setTimeout(() => {
+            setCurrentEvent(null);
+            setIsExiting(false);
+          }, 200);
+        }}
+        className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
+          isExiting
+            ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+            : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+        }`}
       >
         {/* Saweria Style Floating Event Card */}
         <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">

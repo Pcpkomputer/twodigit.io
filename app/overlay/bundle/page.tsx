@@ -135,6 +135,7 @@ function BundleOverlayContent() {
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
   const [chatQueue, setChatQueue] = useState<InteractiveChatMessage[]>([]);
   const [isChatSpeaking, setIsChatSpeaking] = useState<boolean>(false);
+  const [isChatExiting, setIsChatExiting] = useState<boolean>(false);
 
   // State: SFX
   const [currentSfx, setCurrentSfx] = useState<SfxEvent | null>(null);
@@ -235,6 +236,22 @@ function BundleOverlayContent() {
         sfxAudioRef.current.onerror = null;
       } catch {}
     }
+  };
+
+  // Safe dismiss routine for Host Chat: plays 300ms smooth exit fadeout
+  const dismissChat = () => {
+    if (chatDismissTimerRef.current) {
+      clearTimeout(chatDismissTimerRef.current);
+      chatDismissTimerRef.current = null;
+    }
+    setIsChatSpeaking(false);
+    stopChatAudio();
+    setIsChatExiting(true);
+
+    setTimeout(() => {
+      setCurrentChat(null);
+      setIsChatExiting(false);
+    }, 300);
   };
 
   // Unlock Audio on Mount (exactly 4 persistent Audio instances for the entire lifecycle)
@@ -639,16 +656,6 @@ function BundleOverlayContent() {
     setChatDisplayDuration(estimatedDuration);
     setIsChatSpeaking(true);
 
-    const dismissChat = () => {
-      if (chatDismissTimerRef.current) {
-        clearTimeout(chatDismissTimerRef.current);
-        chatDismissTimerRef.current = null;
-      }
-      setIsChatSpeaking(false);
-      stopChatAudio();
-      setCurrentChat(null);
-    };
-
     // 1. HARD WATCHDOG TIMER: Always guarantees popup dismissal
     chatDismissTimerRef.current = setTimeout(dismissChat, estimatedDuration);
 
@@ -664,18 +671,18 @@ function BundleOverlayContent() {
           audio.onloadedmetadata = () => {
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
-              const postSpeechDelay = chatQueue.length > 0 ? 1000 : 1800;
+              const postSpeechDelay = chatQueue.length > 0 ? 400 : 700;
               const totalDuration = audioMs + postSpeechDelay;
               setChatDisplayDuration(totalDuration);
 
               if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
-              chatDismissTimerRef.current = setTimeout(dismissChat, audioMs + 3500);
+              chatDismissTimerRef.current = setTimeout(dismissChat, audioMs + 3000);
             }
           };
 
           audio.onended = () => {
             setIsChatSpeaking(false);
-            const postSpeechDelay = chatQueue.length > 0 ? 1000 : 1800;
+            const postSpeechDelay = chatQueue.length > 0 ? 400 : 700;
             if (chatDismissTimerRef.current) clearTimeout(chatDismissTimerRef.current);
             chatDismissTimerRef.current = setTimeout(dismissChat, postSpeechDelay);
           };
@@ -903,11 +910,12 @@ function BundleOverlayContent() {
         >
           <div
             style={scale !== 1 ? { zoom: scale } : undefined}
-            onClick={() => {
-              setCurrentChat(null);
-              stopChatAudio();
-            }}
-            className="transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-5"
+            onClick={dismissChat}
+            className={`transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer ${
+              isChatExiting
+                ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+                : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+            }`}
           >
             {/* Streamer Speech Card */}
             <div className="bg-black/85 backdrop-blur-md rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
@@ -951,6 +959,9 @@ function BundleOverlayContent() {
                 <div
                   key={`${currentChat.id}-${chatDisplayDuration}`}
                   className="bg-yellow-400 h-full origin-left rounded-full"
+                  onAnimationEnd={() => {
+                    dismissChat();
+                  }}
                   style={{
                     animation: `shrinkWidth ${chatDisplayDuration}ms linear forwards`,
                   }}

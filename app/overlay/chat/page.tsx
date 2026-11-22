@@ -300,15 +300,15 @@ function ChatOverlayContent() {
       speechText,
       // onEnded:
       () => {
-        // Audio finished cleanly: give 1.8s reading buffer (or 1s if backlog) then close
-        const postSpeechDelay = queue.length > 0 ? 1000 : 1800;
+        // Audio finished cleanly: give quick 700ms breathing buffer (or 400ms if backlog) then close
+        const postSpeechDelay = queue.length > 0 ? 400 : 700;
         dismissTimerRef.current = setTimeout(() => {
           dismissChat();
         }, postSpeechDelay);
       },
       // onDurationKnown:
       (audioMs) => {
-        const postSpeechDelay = queue.length > 0 ? 1000 : 1800;
+        const postSpeechDelay = queue.length > 0 ? 400 : 700;
         const totalDuration = audioMs + postSpeechDelay;
         setDisplayDuration(totalDuration);
 
@@ -317,7 +317,7 @@ function ChatOverlayContent() {
         }
         watchdogTimerRef.current = setTimeout(() => {
           dismissChat();
-        }, audioMs + 3500);
+        }, audioMs + 3000);
       },
       currentChat.voice || "schoolgirl"
     );
@@ -399,6 +399,9 @@ function ChatOverlayContent() {
               <div
                 key={`${currentChat.id}-${displayDuration}`}
                 className="bg-yellow-400 h-full origin-left rounded-full"
+                onAnimationEnd={() => {
+                  dismissChat();
+                }}
                 style={{
                   animation: `shrinkWidth ${displayDuration}ms linear forwards`,
                 }}

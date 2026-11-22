@@ -145,10 +145,8 @@ function BundleOverlayContent() {
   // Audio & Hardware Lock State
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
-  // Dedicated Zero-Collision Persistent Audio Players (Isolated per notification type)
-  const alertAudioRef = useRef<HTMLAudioElement | null>(null);
-  const eventAudioRef = useRef<HTMLAudioElement | null>(null);
-  const chatAudioRef = useRef<HTMLAudioElement | null>(null);
+  // Zero-Leak Persistent Audio Players: exactly 1 for all TTS and 1 for SFX
+  const ttsAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Direct DOM ref for synchronized, pixel-perfect countdown bar animation
@@ -176,41 +174,17 @@ function BundleOverlayContent() {
     return false;
   };
 
-  // Helper: Stop Alert Audio cleanly
-  const stopAlertAudio = () => {
-    if (alertAudioRef.current) {
+  // Helper: Stop TTS Audio cleanly
+  const stopTTSAudio = () => {
+    if (ttsAudioRef.current) {
       try {
-        alertAudioRef.current.pause();
-        alertAudioRef.current.removeAttribute("src");
-        alertAudioRef.current.load();
-        alertAudioRef.current.onended = null;
-        alertAudioRef.current.onerror = null;
-      } catch {}
-    }
-  };
-
-  // Helper: Stop Event TTS Audio cleanly
-  const stopEventAudio = () => {
-    if (eventAudioRef.current) {
-      try {
-        eventAudioRef.current.pause();
-        eventAudioRef.current.removeAttribute("src");
-        eventAudioRef.current.load();
-        eventAudioRef.current.onended = null;
-        eventAudioRef.current.onerror = null;
-      } catch {}
-    }
-  };
-
-  // Helper: Stop Chat TTS Audio cleanly
-  const stopChatAudio = () => {
-    if (chatAudioRef.current) {
-      try {
-        chatAudioRef.current.pause();
-        chatAudioRef.current.removeAttribute("src");
-        chatAudioRef.current.load();
-        chatAudioRef.current.onended = null;
-        chatAudioRef.current.onerror = null;
+        ttsAudioRef.current.pause();
+        ttsAudioRef.current.removeAttribute("src");
+        ttsAudioRef.current.load();
+        ttsAudioRef.current.onended = null;
+        ttsAudioRef.current.onerror = null;
+        ttsAudioRef.current.onstalled = null;
+        ttsAudioRef.current.onloadedmetadata = null;
       } catch {}
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -233,20 +207,11 @@ function BundleOverlayContent() {
     }
   };
 
-  // Unlock Audio on Mount
+  // Unlock Audio on Mount (exactly 2 persistent Audio instances for the entire lifecycle)
   useEffect(() => {
-    // Instantiate persistent isolated audio elements
-    const alertAudio = new Audio();
-    alertAudio.crossOrigin = "anonymous";
-    alertAudioRef.current = alertAudio;
-
-    const eventAudio = new Audio();
-    eventAudio.crossOrigin = "anonymous";
-    eventAudioRef.current = eventAudio;
-
-    const chatAudio = new Audio();
-    chatAudio.crossOrigin = "anonymous";
-    chatAudioRef.current = chatAudio;
+    const ttsAudio = new Audio();
+    ttsAudio.crossOrigin = "anonymous";
+    ttsAudioRef.current = ttsAudio;
 
     const sfxAudio = new Audio();
     sfxAudio.crossOrigin = "anonymous";
@@ -267,9 +232,7 @@ function BundleOverlayContent() {
     window.addEventListener("click", unlock);
     return () => {
       window.removeEventListener("click", unlock);
-      stopAlertAudio();
-      stopEventAudio();
-      stopChatAudio();
+      stopTTSAudio();
       stopSfxAudio();
     };
   }, []);
@@ -492,13 +455,13 @@ function BundleOverlayContent() {
     const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
     alertDismissTimerRef.current = setTimeout(() => {
       setCurrentAlert(null);
-      stopAlertAudio();
+      stopTTSAudio();
     }, safetyTimeout);
 
     // Play TTS via persistent audio element
     if (speechText) {
       try {
-        const audio = alertAudioRef.current;
+        const audio = ttsAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
@@ -507,7 +470,7 @@ function BundleOverlayContent() {
               if (alertDismissTimerRef.current) clearTimeout(alertDismissTimerRef.current);
               alertDismissTimerRef.current = setTimeout(() => {
                 setCurrentAlert(null);
-                stopAlertAudio();
+                stopTTSAudio();
               }, 2000);
             }
           };
@@ -552,7 +515,7 @@ function BundleOverlayContent() {
       setTimeout(() => {
         setCurrentEvent(null);
         setIsEventExiting(false);
-        stopEventAudio();
+        stopTTSAudio();
       }, 250);
     };
 
@@ -562,7 +525,7 @@ function BundleOverlayContent() {
 
     if (currentEvent.speechText) {
       try {
-        const audio = eventAudioRef.current;
+        const audio = ttsAudioRef.current;
         if (audio) {
           audio.src = `/api/tts?text=${encodeURIComponent(currentEvent.speechText)}&t=${Date.now()}`;
           audio.volume = 1.0;
@@ -619,7 +582,7 @@ function BundleOverlayContent() {
       setTimeout(() => {
         setCurrentEvent(null);
         setIsEventExiting(false);
-        stopEventAudio();
+        stopTTSAudio();
       }, 250);
     }
 
@@ -659,7 +622,7 @@ function BundleOverlayContent() {
         chatDismissTimerRef.current = null;
       }
       setIsChatSpeaking(false);
-      stopChatAudio();
+      stopTTSAudio();
       setCurrentChat(null);
     };
 
@@ -668,7 +631,7 @@ function BundleOverlayContent() {
 
     if (currentChat.message) {
       try {
-        const audio = chatAudioRef.current;
+        const audio = ttsAudioRef.current;
         if (audio) {
           const voiceParam = currentChat.voice ? `&voice=${encodeURIComponent(currentChat.voice)}` : "&voice=schoolgirl";
           audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
@@ -888,7 +851,7 @@ function BundleOverlayContent() {
               setTimeout(() => {
                 setCurrentEvent(null);
                 setIsEventExiting(false);
-                stopEventAudio();
+                stopTTSAudio();
               }, 200);
             }}
             className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
@@ -939,7 +902,7 @@ function BundleOverlayContent() {
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => {
               setCurrentChat(null);
-              stopChatAudio();
+              stopTTSAudio();
             }}
             className="transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer animate-in fade-in slide-in-from-bottom-5"
           >

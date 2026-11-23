@@ -16,6 +16,10 @@ function TikTokEventsOverlayContent() {
   const [exitingEventId, setExitingEventId] = useState<string | null>(null);
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
+  // Active audio state & countdown duration (forces continuous 60fps compositing on macOS CEF / Apple Silicon M1)
+  const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
+  const [displayDuration, setDisplayDuration] = useState<number>(4500);
+
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentEventIdRef = useRef<string | null>(null);
@@ -38,6 +42,7 @@ function TikTokEventsOverlayContent() {
 
   // Safely stop audio and null out all listeners FIRST to prevent ghost callbacks
   const stopAudio = () => {
+    setIsSpeaking(false);
     const audio = audioRef.current;
     if (audio) {
       audio.onended = null;
@@ -165,6 +170,7 @@ function TikTokEventsOverlayContent() {
       currentEventIdRef.current = "preview-1";
       setCurrentEvent(previewItem);
       setExitingEventId(null);
+      setDisplayDuration(6000);
     }
   }, [isPreview]);
 
@@ -239,6 +245,7 @@ function TikTokEventsOverlayContent() {
   // Active event display and TTS audio playback
   useEffect(() => {
     if (!currentEvent) {
+      setIsSpeaking(false);
       return;
     }
     if (currentEvent.id === "preview-1") return;
@@ -246,6 +253,8 @@ function TikTokEventsOverlayContent() {
     const eventId = currentEvent.id;
     currentEventIdRef.current = eventId;
     eventVisibleSinceRef.current = Date.now();
+    setIsSpeaking(false);
+    setDisplayDuration(4500);
 
     // Clear stale event timers
     clearActiveEventTimers();
@@ -283,6 +292,7 @@ function TikTokEventsOverlayContent() {
             if (currentEventIdRef.current !== eventId) return;
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
+              setDisplayDuration(Math.max(4000, audioMs + 1500));
               if (watchdogTimerRef.current) {
                 clearTimeout(watchdogTimerRef.current);
               }
@@ -294,9 +304,16 @@ function TikTokEventsOverlayContent() {
             }
           };
 
+          audio.onplay = () => {
+            if (currentEventIdRef.current === eventId) {
+              setIsSpeaking(true);
+            }
+          };
+
           // Audio finished cleanly: hold card for reading time (at least 4.0s total display)
           audio.onended = () => {
             if (currentEventIdRef.current !== eventId) return;
+            setIsSpeaking(false);
             if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
             dismissTimerRef.current = setTimeout(() => {
               if (currentEventIdRef.current === eventId) {
@@ -307,6 +324,7 @@ function TikTokEventsOverlayContent() {
 
           audio.onerror = (e) => {
             if (currentEventIdRef.current !== eventId) return;
+            setIsSpeaking(false);
             console.warn("TTS audio failed to load:", e);
             if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
             dismissTimerRef.current = setTimeout(() => {
@@ -318,28 +336,36 @@ function TikTokEventsOverlayContent() {
 
           const playPromise = audio.play();
           if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-              if (currentEventIdRef.current !== eventId) return;
-              if (err.name === "AbortError") return;
-              if (err.name === "NotAllowedError") {
-                setAudioUnlocked(false);
-              }
-              console.warn("Audio autoplay blocked or interrupted:", err);
-              const knownAudioMs =
-                audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                  ? Math.round(audio.duration * 1000)
-                  : 0;
-              if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
-              dismissTimerRef.current = setTimeout(() => {
+            playPromise
+              .then(() => {
                 if (currentEventIdRef.current === eventId) {
-                  dismissCurrentEvent(eventId);
+                  setIsSpeaking(true);
                 }
-              }, Math.max(4200, knownAudioMs + 1500));
-            });
+              })
+              .catch((err) => {
+                if (currentEventIdRef.current !== eventId) return;
+                setIsSpeaking(false);
+                if (err.name === "AbortError") return;
+                if (err.name === "NotAllowedError") {
+                  setAudioUnlocked(false);
+                }
+                console.warn("Audio autoplay blocked or interrupted:", err);
+                const knownAudioMs =
+                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                    ? Math.round(audio.duration * 1000)
+                    : 0;
+                if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+                dismissTimerRef.current = setTimeout(() => {
+                  if (currentEventIdRef.current === eventId) {
+                    dismissCurrentEvent(eventId);
+                  }
+                }, Math.max(4200, knownAudioMs + 1500));
+              });
           }
         }
       } catch (err) {
         console.error("TTS playback error:", err);
+        setIsSpeaking(false);
         if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
         dismissTimerRef.current = setTimeout(() => {
           if (currentEventIdRef.current === eventId) {
@@ -349,6 +375,7 @@ function TikTokEventsOverlayContent() {
       }
     } else {
       // Event without audio text: display for 4.2 seconds
+      setDisplayDuration(4200);
       dismissTimerRef.current = setTimeout(() => {
         if (currentEventIdRef.current === eventId) {
           dismissCurrentEvent(eventId);
@@ -438,7 +465,6 @@ function TikTokEventsOverlayContent() {
       {currentEvent && (
         <div
           key={currentEvent.id}
-          style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
           onClick={() => dismissCurrentEvent(currentEvent.id)}
           className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${
             isCardExiting
@@ -447,8 +473,8 @@ function TikTokEventsOverlayContent() {
           }`}
         >
           {/* Saweria Style Floating Event Card */}
-          <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
-            {/* Header Meta: Emoji, Event Badge, TikTok Live indicator & Queue Counter */}
+          <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
+            {/* Header Meta: Emoji, Event Badge, Speaking Equalizer & Queue Counter */}
             <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
               <div className="flex items-center gap-2">
                 <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
@@ -461,6 +487,14 @@ function TikTokEventsOverlayContent() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
+                {isSpeaking && (
+                  <div className="flex items-center gap-1 shrink-0 px-2 py-0.5 bg-yellow-400/20 rounded-md border border-yellow-400/40">
+                    <span className="w-1 h-3 bg-yellow-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                    <span className="w-1 h-4 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                    <span className="w-1 h-2.5 bg-yellow-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                    <span className="text-[10px] font-bold text-yellow-300 ml-0.5">TTS</span>
+                  </div>
+                )}
                 {queue.length > 0 && (
                   <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-yellow-300 border border-yellow-400/40 text-[10px] font-black tracking-wide">
                     +{queue.length} antre
@@ -484,6 +518,17 @@ function TikTokEventsOverlayContent() {
               <p className="saweria-text-white text-base md:text-lg font-black leading-snug break-words">
                 {currentEvent.displayText}
               </p>
+            </div>
+
+            {/* Visual Lifetime Countdown Bar (Forces active 60fps repaints on macOS CEF / M1) */}
+            <div className="w-full bg-yellow-400/20 h-1.5 rounded-full overflow-hidden mt-1">
+              <div
+                key={`${currentEvent.id}-${displayDuration}`}
+                className="bg-gradient-to-r from-amber-400 to-yellow-300 h-full origin-left rounded-full"
+                style={{
+                  animation: `shrinkWidth ${displayDuration}ms linear forwards`,
+                }}
+              />
             </div>
           </div>
         </div>

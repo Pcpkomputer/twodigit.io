@@ -131,6 +131,8 @@ function BundleOverlayContent() {
   const [eventQueue, setEventQueue] = useState<TikTokEventPayload[]>([]);
   // STRICT ID GUARD: exitingEventId tracks the exact ID of the event exiting, preventing cross-event opacity leaks
   const [exitingEventId, setExitingEventId] = useState<string | null>(null);
+  const [isEventSpeaking, setIsEventSpeaking] = useState<boolean>(false);
+  const [eventDisplayDuration, setEventDisplayDuration] = useState<number>(4500);
 
   // State: Host Interactive Chat & Announcement
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
@@ -213,6 +215,7 @@ function BundleOverlayContent() {
 
   // Helper: Stop Event Audio cleanly (null listeners FIRST, no empty load() error trigger)
   const stopEventAudio = () => {
+    setIsEventSpeaking(false);
     if (eventAudioRef.current) {
       eventAudioRef.current.onended = null;
       eventAudioRef.current.onerror = null;
@@ -396,6 +399,8 @@ function BundleOverlayContent() {
           timestamp: new Date().toISOString(),
           priority: 1,
         });
+        activeEventIdRef.current = "prev-event";
+        setEventDisplayDuration(6000);
       }
 
       if (enabledModules.has("chat") && !currentChat) {
@@ -484,7 +489,14 @@ function BundleOverlayContent() {
         if (isDuplicate) return;
 
         // If static preview card is currently displayed, clear it so real simulation events can play
-        setCurrentEvent((curr) => (curr && curr.id === "prev-event" ? null : curr));
+        setCurrentEvent((curr) => {
+          if (curr && curr.id === "prev-event") {
+            activeEventIdRef.current = null;
+            setExitingEventId(null);
+            return null;
+          }
+          return curr;
+        });
         setCurrentChat((curr) => (curr && curr.id === "prev-chat" ? null : curr));
 
         setEventQueue((prev) => {
@@ -679,6 +691,8 @@ function BundleOverlayContent() {
     const eventId = currentEvent.id;
     activeEventIdRef.current = eventId;
     eventVisibleSinceRef.current = Date.now();
+    setIsEventSpeaking(false);
+    setEventDisplayDuration(4500);
     clearEventTimers();
     stopEventAudio();
 
@@ -714,6 +728,7 @@ function BundleOverlayContent() {
             if (activeEventIdRef.current !== eventId) return;
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
+              setEventDisplayDuration(Math.max(4000, audioMs + 1500));
               if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
               eventWatchdogTimerRef.current = setTimeout(() => {
                 if (activeEventIdRef.current === eventId) {
@@ -723,8 +738,15 @@ function BundleOverlayContent() {
             }
           };
 
+          audio.onplay = () => {
+            if (activeEventIdRef.current === eventId) {
+              setIsEventSpeaking(true);
+            }
+          };
+
           audio.onended = () => {
             if (activeEventIdRef.current !== eventId) return;
+            setIsEventSpeaking(false);
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
             eventDismissTimerRef.current = setTimeout(() => {
               if (activeEventIdRef.current === eventId) {
@@ -735,6 +757,7 @@ function BundleOverlayContent() {
 
           audio.onerror = () => {
             if (activeEventIdRef.current !== eventId) return;
+            setIsEventSpeaking(false);
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
             eventDismissTimerRef.current = setTimeout(() => {
               if (activeEventIdRef.current === eventId) {
@@ -745,26 +768,34 @@ function BundleOverlayContent() {
 
           const playPromise = audio.play();
           if (playPromise !== undefined) {
-            playPromise.catch((err) => {
-              if (activeEventIdRef.current !== eventId) return;
-              if (err.name === "AbortError") return;
-              if (err.name === "NotAllowedError") {
-                setAudioUnlocked(false);
-              }
-              const knownAudioMs =
-                audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                  ? Math.round(audio.duration * 1000)
-                  : 0;
-              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(() => {
+            playPromise
+              .then(() => {
                 if (activeEventIdRef.current === eventId) {
-                  dismissActiveEvent(eventId);
+                  setIsEventSpeaking(true);
                 }
-              }, Math.max(4200, knownAudioMs + 1500));
-            });
+              })
+              .catch((err) => {
+                if (activeEventIdRef.current !== eventId) return;
+                setIsEventSpeaking(false);
+                if (err.name === "AbortError") return;
+                if (err.name === "NotAllowedError") {
+                  setAudioUnlocked(false);
+                }
+                const knownAudioMs =
+                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                    ? Math.round(audio.duration * 1000)
+                    : 0;
+                if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+                eventDismissTimerRef.current = setTimeout(() => {
+                  if (activeEventIdRef.current === eventId) {
+                    dismissActiveEvent(eventId);
+                  }
+                }, Math.max(4200, knownAudioMs + 1500));
+              });
           }
         }
       } catch {
+        setIsEventSpeaking(false);
         if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
         eventDismissTimerRef.current = setTimeout(() => {
           if (activeEventIdRef.current === eventId) {
@@ -773,6 +804,7 @@ function BundleOverlayContent() {
         }, getHoldDelay(3500, 4200));
       }
     } else {
+      setEventDisplayDuration(4200);
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
       eventDismissTimerRef.current = setTimeout(() => {
         if (activeEventIdRef.current === eventId) {
@@ -1059,8 +1091,8 @@ function BundleOverlayContent() {
             }`}
           >
             {/* Saweria Style Floating Event Card */}
-            <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
-              {/* Header Meta: Emoji, Event Badge, TikTok Live indicator & Queue Counter */}
+            <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
+              {/* Header Meta: Emoji, Event Badge, Speaking Equalizer & Queue Counter */}
               <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
@@ -1073,6 +1105,14 @@ function BundleOverlayContent() {
                   </span>
                 </div>
                 <div className="flex items-center gap-2">
+                  {isEventSpeaking && (
+                    <div className="flex items-center gap-1 shrink-0 px-2 py-0.5 bg-yellow-400/20 rounded-md border border-yellow-400/40">
+                      <span className="w-1 h-3 bg-yellow-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+                      <span className="w-1 h-4 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+                      <span className="w-1 h-2.5 bg-yellow-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+                      <span className="text-[10px] font-bold text-yellow-300 ml-0.5">TTS</span>
+                    </div>
+                  )}
                   {eventQueue.length > 0 && (
                     <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-yellow-300 border border-yellow-400/40 text-[10px] font-black tracking-wide">
                       +{eventQueue.length} antre
@@ -1096,6 +1136,17 @@ function BundleOverlayContent() {
                 <p className="saweria-text-white text-base md:text-lg font-black leading-snug break-words">
                   {currentEvent.displayText}
                 </p>
+              </div>
+
+              {/* Visual Lifetime Countdown Bar (Forces active 60fps repaints on macOS CEF / M1) */}
+              <div className="w-full bg-yellow-400/20 h-1.5 rounded-full overflow-hidden mt-1">
+                <div
+                  key={`${currentEvent.id}-${eventDisplayDuration}`}
+                  className="bg-gradient-to-r from-amber-400 to-yellow-300 h-full origin-left rounded-full"
+                  style={{
+                    animation: `shrinkWidth ${eventDisplayDuration}ms linear forwards`,
+                  }}
+                />
               </div>
             </div>
           </div>

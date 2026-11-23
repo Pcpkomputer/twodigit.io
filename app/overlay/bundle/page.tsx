@@ -251,7 +251,7 @@ function BundleOverlayContent() {
       activeEventIdRef.current = null;
       isDismissingEventRef.current = false;
 
-      // 200ms breather before showing next item
+      // 150ms breather before showing next item
       setIsEventTransitioning(true);
       if (eventTransitionTimerRef.current) {
         clearTimeout(eventTransitionTimerRef.current);
@@ -259,8 +259,8 @@ function BundleOverlayContent() {
       eventTransitionTimerRef.current = setTimeout(() => {
         eventTransitionTimerRef.current = null;
         setIsEventTransitioning(false);
-      }, 200);
-    }, 250);
+      }, 150);
+    }, 280);
   };
 
   // If the user switches from /test-overlay tab to this overlay tab while an event is active,
@@ -509,8 +509,13 @@ function BundleOverlayContent() {
               (item) => !(item.eventType === "join" && item.uniqueId === data.uniqueId)
             );
           }
-          const next = [...filtered, data];
-          return next.slice(-15).sort((a, b) => (a.priority || 4) - (b.priority || 4));
+          let updated = [...filtered, data];
+          if (updated.length > 20) {
+            const gifts = updated.filter((x) => x.priority === 1);
+            const others = updated.filter((x) => x.priority > 1).slice(-15);
+            updated = [...gifts, ...others];
+          }
+          return updated.sort((a, b) => (a.priority || 4) - (b.priority || 4));
         });
       });
     }
@@ -705,10 +710,7 @@ function BundleOverlayContent() {
     const speechText = currentEvent.speechText || "";
 
     // Helper to compute remaining hold time so popup NEVER flashes for only 1 second
-    const getHoldDelay = (postAudioMs = 1200, minTotalVisibleMs = 3800) => {
-      if (typeof document !== "undefined" && document.hidden) {
-        return 4500;
-      }
+    const getHoldDelay = (postAudioMs = 1500, minTotalVisibleMs = 4000) => {
       const elapsedVisible = Date.now() - eventVisibleSinceRef.current;
       return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
     };
@@ -716,94 +718,90 @@ function BundleOverlayContent() {
     // Dynamic non-blocking watchdog timer
     const estimatedDuration = Math.min(
       15000,
-      Math.max(5500, Math.ceil(speechText.length * 110) + 3500)
+      Math.max(6000, Math.ceil(speechText.length * 120) + 4000)
     );
     eventWatchdogTimerRef.current = setTimeout(() => {
       dismissActiveEvent(eventId);
     }, estimatedDuration);
 
-    let rafId: number | null = null;
+    // Play TTS Audio Synchronously (No rAF delay to avoid background tab freeze)
     if (speechText) {
-      rafId = window.requestAnimationFrame(() => {
-        if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-        try {
-          const audio = eventAudioRef.current;
-          if (audio) {
-            audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
-            audio.volume = 1.0;
+      try {
+        const audio = eventAudioRef.current;
+        if (audio) {
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          audio.volume = 1.0;
 
-            // When exact audio length is known, adapt dismiss time accurately
-            audio.onloadedmetadata = () => {
-              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-              if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-                const audioMs = Math.round(audio.duration * 1000);
-                if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
-                eventWatchdogTimerRef.current = setTimeout(() => {
-                  dismissActiveEvent(eventId);
-                }, audioMs + 2800);
-
-                // If autoplay was blocked in this tab, sync display duration with exact audio length
-                if (eventPlayBlockedRef.current) {
-                  if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-                  eventDismissTimerRef.current = setTimeout(() => {
-                    dismissActiveEvent(eventId);
-                  }, Math.max(3800, audioMs + 1200));
-                }
-              }
-            };
-
-            audio.onended = () => {
-              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(() => {
+          // When exact audio length is known, adapt dismiss time accurately
+          audio.onloadedmetadata = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+              const audioMs = Math.round(audio.duration * 1000);
+              if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
+              eventWatchdogTimerRef.current = setTimeout(() => {
                 dismissActiveEvent(eventId);
-              }, getHoldDelay(1200, 3800));
-            };
+              }, audioMs + 3200);
 
-            audio.onerror = () => {
-              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(() => {
-                dismissActiveEvent(eventId);
-              }, getHoldDelay(3500, 4200));
-            };
-
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-              playPromise.catch((err) => {
-                if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-                if (err.name === "AbortError") return;
-                eventPlayBlockedRef.current = true;
-                if (err.name === "NotAllowedError") {
-                  setAudioUnlocked(false);
-                }
-                const knownAudioMs =
-                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                    ? Math.round(audio.duration * 1000)
-                    : 0;
+              // If autoplay was blocked in this tab, sync display duration with exact audio length
+              if (eventPlayBlockedRef.current) {
                 if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
                 eventDismissTimerRef.current = setTimeout(() => {
                   dismissActiveEvent(eventId);
-                }, Math.max(4200, knownAudioMs + 1200));
-              });
+                }, Math.max(4000, audioMs + 1500));
+              }
             }
+          };
+
+          audio.onended = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+            eventDismissTimerRef.current = setTimeout(() => {
+              dismissActiveEvent(eventId);
+            }, getHoldDelay(1500, 4000));
+          };
+
+          audio.onerror = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+            eventDismissTimerRef.current = setTimeout(() => {
+              dismissActiveEvent(eventId);
+            }, getHoldDelay(3500, 4200));
+          };
+
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+              if (err.name === "AbortError") return;
+              eventPlayBlockedRef.current = true;
+              if (err.name === "NotAllowedError") {
+                setAudioUnlocked(false);
+              }
+              const knownAudioMs =
+                audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                  ? Math.round(audio.duration * 1000)
+                  : 0;
+              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+              eventDismissTimerRef.current = setTimeout(() => {
+                dismissActiveEvent(eventId);
+              }, Math.max(4200, knownAudioMs + 1500));
+            });
           }
-        } catch {
-          if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-          eventDismissTimerRef.current = setTimeout(() => {
-            dismissActiveEvent(eventId);
-          }, getHoldDelay(3500, 4200));
         }
-      });
+      } catch {
+        if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+        eventDismissTimerRef.current = setTimeout(() => {
+          dismissActiveEvent(eventId);
+        }, getHoldDelay(3500, 4200));
+      }
     } else {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
       eventDismissTimerRef.current = setTimeout(() => {
         dismissActiveEvent(eventId);
-      }, 4000);
+      }, 4200);
     }
 
     return () => {
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
       clearEventTimers();
       stopEventAudio();
     };
@@ -1077,15 +1075,15 @@ function BundleOverlayContent() {
             key={currentEvent.id}
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => dismissActiveEvent(currentEvent.id)}
-            className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
+            className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${
               isEventExiting
                 ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
-                : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+                : "opacity-100 translate-y-0 scale-100"
             }`}
           >
             {/* Saweria Style Floating Event Card */}
             <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
-              {/* Header Meta: Emoji, Event Badge & TikTok Live indicator */}
+              {/* Header Meta: Emoji, Event Badge, TikTok Live indicator & Queue Counter */}
               <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
                 <div className="flex items-center gap-2">
                   <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
@@ -1097,9 +1095,16 @@ function BundleOverlayContent() {
                     {getBadgeLabel(currentEvent.eventType)}
                   </span>
                 </div>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-                  TikTok Live
-                </span>
+                <div className="flex items-center gap-2">
+                  {eventQueue.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-yellow-300 border border-yellow-400/40 text-[10px] font-black tracking-wide">
+                      +{eventQueue.length} antre
+                    </span>
+                  )}
+                  <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                    TikTok Live
+                  </span>
+                </div>
               </div>
 
               {/* Nickname: Full width, NEVER covered by badge! */}

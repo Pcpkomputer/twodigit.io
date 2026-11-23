@@ -18,37 +18,38 @@ function TikTokEventsOverlayContent() {
 
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const dismissTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const exitTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const watchdogTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const activeEventIdRef = useRef<string | null>(null);
   const isDismissingRef = useRef<boolean>(false);
   const eventVisibleSinceRef = useRef<number>(0);
   const playBlockedRef = useRef<boolean>(false);
 
-  // Clear timers belonging to the active event (does NOT kill transitionTimeoutRef)
+  // Clear timers belonging to the active event
   const clearEventTimers = () => {
-    if (dismissTimeoutRef.current) {
-      clearTimeout(dismissTimeoutRef.current);
-      dismissTimeoutRef.current = null;
+    if (dismissTimerRef.current) {
+      clearTimeout(dismissTimerRef.current);
+      dismissTimerRef.current = null;
     }
-    if (exitTimeoutRef.current) {
-      clearTimeout(exitTimeoutRef.current);
-      exitTimeoutRef.current = null;
+    if (watchdogTimerRef.current) {
+      clearTimeout(watchdogTimerRef.current);
+      watchdogTimerRef.current = null;
     }
-    if (watchdogTimeoutRef.current) {
-      clearTimeout(watchdogTimeoutRef.current);
-      watchdogTimeoutRef.current = null;
+    if (exitTimerRef.current) {
+      clearTimeout(exitTimerRef.current);
+      exitTimerRef.current = null;
     }
   };
 
   // Clear all timers including transition timer (used on unmount)
   const clearAllTimers = () => {
     clearEventTimers();
-    if (transitionTimeoutRef.current) {
-      clearTimeout(transitionTimeoutRef.current);
-      transitionTimeoutRef.current = null;
+    if (transitionTimerRef.current) {
+      clearTimeout(transitionTimerRef.current);
+      transitionTimerRef.current = null;
     }
   };
 
@@ -86,35 +87,34 @@ function TikTokEventsOverlayContent() {
     stopAudio();
     setIsExiting(true);
 
-    exitTimeoutRef.current = setTimeout(() => {
-      exitTimeoutRef.current = null;
+    exitTimerRef.current = setTimeout(() => {
+      exitTimerRef.current = null;
       setCurrentEvent(null);
       setIsExiting(false);
       activeEventIdRef.current = null;
       isDismissingRef.current = false;
 
-      // 200ms breather before showing next item (prevents visual collision & overlapping audio)
+      // 150ms breather before showing next item (prevents visual collision & overlapping audio)
       setIsTransitioning(true);
-      if (transitionTimeoutRef.current) {
-        clearTimeout(transitionTimeoutRef.current);
+      if (transitionTimerRef.current) {
+        clearTimeout(transitionTimerRef.current);
       }
-      transitionTimeoutRef.current = setTimeout(() => {
-        transitionTimeoutRef.current = null;
+      transitionTimerRef.current = setTimeout(() => {
+        transitionTimerRef.current = null;
         setIsTransitioning(false);
-      }, 200);
-    }, 250);
+      }, 150);
+    }, 280);
   };
 
-  // If the user switches from /test-overlay tab to this overlay tab while an event is active,
-  // reset the visible timestamp & ensure the popup stays visible for at least 3.2s after tab switch
+  // Tab switch recovery: ensure the card remains visible if user switches tabs
   useEffect(() => {
     const handleVisibilityChange = () => {
       if (!document.hidden && activeEventIdRef.current && !isDismissingRef.current) {
         eventVisibleSinceRef.current = Date.now();
         const activeId = activeEventIdRef.current;
-        if (dismissTimeoutRef.current) {
-          clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => {
+        if (dismissTimerRef.current) {
+          clearTimeout(dismissTimerRef.current);
+          dismissTimerRef.current = setTimeout(() => {
             dismissCurrentEvent(activeId);
           }, 3200);
         }
@@ -212,11 +212,11 @@ function TikTokEventsOverlayContent() {
           );
         }
 
-        // Keep up to 15 pending events so rapid multi-click testing never drops categories
+        // Keep up to 20 pending events so rapid multi-click testing never drops categories
         let updated = [...filtered, data];
-        if (updated.length > 15) {
+        if (updated.length > 20) {
           const gifts = updated.filter((x) => x.priority === 1);
-          const others = updated.filter((x) => x.priority > 1).slice(-10);
+          const others = updated.filter((x) => x.priority > 1).slice(-15);
           updated = [...gifts, ...others];
         }
 
@@ -232,7 +232,7 @@ function TikTokEventsOverlayContent() {
     };
   }, []);
 
-  // Queue Consumer: Picks next item when idle
+  // Queue Consumer: Deterministically picks next item when idle
   useEffect(() => {
     if (currentEvent === null && queue.length > 0 && !isExiting && !isTransitioning) {
       const [nextItem, ...remaining] = queue;
@@ -255,7 +255,7 @@ function TikTokEventsOverlayContent() {
 
     const eventId = currentEvent.id;
 
-    // Guaranteed 100% visible from millisecond 0 (prevents opacity-0 race condition)
+    // Guaranteed 100% visible from millisecond 0
     setIsExiting(false);
     isDismissingRef.current = false;
     playBlockedRef.current = false;
@@ -266,112 +266,105 @@ function TikTokEventsOverlayContent() {
 
     const speechText = currentEvent.speechText || "";
 
-    // Helper to compute remaining hold time so popup NEVER flashes for only 1 second
-    const getHoldDelay = (postAudioMs = 1200, minTotalVisibleMs = 3800) => {
-      if (typeof document !== "undefined" && document.hidden) {
-        return 4500;
-      }
+    // Helper: compute remaining hold time so popup NEVER disappears prematurely
+    const getHoldDelay = (postAudioMs = 1500, minTotalVisibleMs = 4000) => {
       const elapsedVisible = Date.now() - eventVisibleSinceRef.current;
       return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
     };
 
-    // 1. DYNAMIC WATCHDOG TIMER: Always guarantees the card auto-dismisses safely
+    // 1. SAFETY WATCHDOG TIMER: Always guarantees the card auto-dismisses eventually
     const estimatedDuration = Math.min(
       15000,
-      Math.max(5500, Math.ceil(speechText.length * 110) + 3500)
+      Math.max(6000, Math.ceil(speechText.length * 120) + 4000)
     );
-    watchdogTimeoutRef.current = setTimeout(() => {
+    watchdogTimerRef.current = setTimeout(() => {
       dismissCurrentEvent(eventId);
     }, estimatedDuration);
 
-    // 2. PLAY TTS AUDIO VIA HTML5 AUDIO ELEMENT (After ensuring card is painted on screen)
-    let rafId: number | null = null;
+    // 2. PLAY TTS AUDIO DIRECTLY (Synchronous call - zero rAF delay to avoid background tab freezes)
     if (speechText) {
-      rafId = window.requestAnimationFrame(() => {
-        if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-        try {
-          const audio = audioRef.current;
-          if (audio) {
-            audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
-            audio.volume = 1.0;
+      try {
+        const audio = audioRef.current;
+        if (audio) {
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          audio.volume = 1.0;
 
-            // When exact audio duration is loaded, adapt watchdog accurately
-            audio.onloadedmetadata = () => {
-              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-              if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-                const audioMs = Math.round(audio.duration * 1000);
-                if (watchdogTimeoutRef.current) {
-                  clearTimeout(watchdogTimeoutRef.current);
-                }
-                watchdogTimeoutRef.current = setTimeout(() => {
-                  dismissCurrentEvent(eventId);
-                }, audioMs + 2800);
-
-                // If autoplay was blocked in this tab, sync display duration with exact audio length
-                if (playBlockedRef.current) {
-                  if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                  dismissTimeoutRef.current = setTimeout(() => {
-                    dismissCurrentEvent(eventId);
-                  }, Math.max(3800, audioMs + 1200));
-                }
+          // When exact audio duration is loaded, adapt watchdog accurately
+          audio.onloadedmetadata = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+              const audioMs = Math.round(audio.duration * 1000);
+              if (watchdogTimerRef.current) {
+                clearTimeout(watchdogTimerRef.current);
               }
-            };
-
-            // Audio finished cleanly: guarantee at least 3.8s total visible time & 1.2s post-speech hold
-            audio.onended = () => {
-              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-              dismissTimeoutRef.current = setTimeout(() => {
+              watchdogTimerRef.current = setTimeout(() => {
                 dismissCurrentEvent(eventId);
-              }, getHoldDelay(1200, 3800));
-            };
+              }, audioMs + 3200);
 
-            audio.onerror = (e) => {
-              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-              console.warn("TTS audio failed to load:", e);
-              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-              dismissTimeoutRef.current = setTimeout(() => {
-                dismissCurrentEvent(eventId);
-              }, getHoldDelay(3500, 4200));
-            };
-
-            const playPromise = audio.play();
-            if (playPromise !== undefined) {
-              playPromise.catch((err) => {
-                if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-                if (err.name === "AbortError") return;
-                playBlockedRef.current = true;
-                if (err.name === "NotAllowedError") {
-                  setAudioUnlocked(false);
-                }
-                console.warn("Audio autoplay blocked or interrupted:", err);
-                const knownAudioMs =
-                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                    ? Math.round(audio.duration * 1000)
-                    : 0;
-                if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-                dismissTimeoutRef.current = setTimeout(() => {
+              // If autoplay was blocked in this tab, sync display duration with exact audio length
+              if (playBlockedRef.current) {
+                if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+                dismissTimerRef.current = setTimeout(() => {
                   dismissCurrentEvent(eventId);
-                }, Math.max(4200, knownAudioMs + 1200));
-              });
+                }, Math.max(4000, audioMs + 1500));
+              }
             }
+          };
+
+          // Audio finished cleanly: hold card for reading time (at least 4.0s total display)
+          audio.onended = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+            dismissTimerRef.current = setTimeout(() => {
+              dismissCurrentEvent(eventId);
+            }, getHoldDelay(1500, 4000));
+          };
+
+          audio.onerror = (e) => {
+            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            console.warn("TTS audio failed to load:", e);
+            if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+            dismissTimerRef.current = setTimeout(() => {
+              dismissCurrentEvent(eventId);
+            }, getHoldDelay(3500, 4200));
+          };
+
+          const playPromise = audio.play();
+          if (playPromise !== undefined) {
+            playPromise.catch((err) => {
+              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+              if (err.name === "AbortError") return;
+              playBlockedRef.current = true;
+              if (err.name === "NotAllowedError") {
+                setAudioUnlocked(false);
+              }
+              console.warn("Audio autoplay blocked or interrupted:", err);
+              const knownAudioMs =
+                audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                  ? Math.round(audio.duration * 1000)
+                  : 0;
+              if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+              dismissTimerRef.current = setTimeout(() => {
+                dismissCurrentEvent(eventId);
+              }, Math.max(4200, knownAudioMs + 1500));
+            });
           }
-        } catch (err) {
-          console.error("TTS playback error:", err);
-          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-          dismissTimeoutRef.current = setTimeout(() => {
-            dismissCurrentEvent(eventId);
-          }, getHoldDelay(3500, 4200));
         }
-      });
+      } catch (err) {
+        console.error("TTS playback error:", err);
+        if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
+        dismissTimerRef.current = setTimeout(() => {
+          dismissCurrentEvent(eventId);
+        }, getHoldDelay(3500, 4200));
+      }
     } else {
-      dismissTimeoutRef.current = setTimeout(() => {
+      // Event without audio text: display for 4.2 seconds
+      dismissTimerRef.current = setTimeout(() => {
         dismissCurrentEvent(eventId);
-      }, 4000);
+      }, 4200);
     }
 
     return () => {
-      if (rafId !== null) window.cancelAnimationFrame(rafId);
       clearEventTimers();
       stopAudio();
     };
@@ -449,48 +442,57 @@ function TikTokEventsOverlayContent() {
         </div>
       )}
       {currentEvent && (
-      <div
-        key={currentEvent.id}
-        style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
-        onClick={() => dismissCurrentEvent(currentEvent.id)}
-        className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
-          isExiting
-            ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
-            : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
-        }`}
-      >
-        {/* Saweria Style Floating Event Card */}
-        <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
-          {/* Header Meta: Emoji, Event Badge & TikTok Live indicator */}
-          <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
-            <div className="flex items-center gap-2">
-              <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
-              <span
-                className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle(currentEvent.eventType)}`}
-              >
-                {getBadgeLabel(currentEvent.eventType)}
-              </span>
+        <div
+          key={currentEvent.id}
+          style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
+          onClick={() => dismissCurrentEvent(currentEvent.id)}
+          className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${
+            isExiting
+              ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+              : "opacity-100 translate-y-0 scale-100"
+          }`}
+        >
+          {/* Saweria Style Floating Event Card */}
+          <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2 backdrop-blur-none">
+            {/* Header Meta: Emoji, Event Badge, TikTok Live indicator & Queue Counter */}
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 pb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
+                <span
+                  className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle(
+                    currentEvent.eventType
+                  )}`}
+                >
+                  {getBadgeLabel(currentEvent.eventType)}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                {queue.length > 0 && (
+                  <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-yellow-300 border border-yellow-400/40 text-[10px] font-black tracking-wide">
+                    +{queue.length} antre
+                  </span>
+                )}
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
+                  TikTok Live
+                </span>
+              </div>
             </div>
-            <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">
-              TikTok Live
-            </span>
-          </div>
 
-          {/* Nickname: Full width, NEVER covered by badge! */}
-          <div className="pt-0.5">
-            <h3 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-tight break-words">
-              {currentEvent.nickname}
-            </h3>
-          </div>
+            {/* Nickname: Full width, NEVER covered by badge! */}
+            <div className="pt-0.5">
+              <h3 className="saweria-text-yellow text-lg md:text-xl uppercase font-black leading-tight break-words">
+                {currentEvent.nickname}
+              </h3>
+            </div>
 
-          {/* Event Content / Message */}
-          <div className="pt-0.5">
-            <p className="saweria-text-white text-base md:text-lg font-black leading-snug break-words">
-              {currentEvent.displayText}
-            </p>
+            {/* Event Content / Message */}
+            <div className="pt-0.5">
+              <p className="saweria-text-white text-base md:text-lg font-black leading-snug break-words">
+                {currentEvent.displayText}
+              </p>
+            </div>
           </div>
         </div>
-      </div>
       )}
     </div>
   );

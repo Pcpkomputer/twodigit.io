@@ -14,6 +14,7 @@ function TikTokEventsOverlayContent() {
   const [queue, setQueue] = useState<TikTokEventPayload[]>([]);
   const [isExiting, setIsExiting] = useState<boolean>(false);
   const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
+  const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -23,6 +24,8 @@ function TikTokEventsOverlayContent() {
   const transitionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const activeEventIdRef = useRef<string | null>(null);
   const isDismissingRef = useRef<boolean>(false);
+  const eventVisibleSinceRef = useRef<number>(0);
+  const playBlockedRef = useRef<boolean>(false);
 
   // Clear timers belonging to the active event (does NOT kill transitionTimeoutRef)
   const clearEventTimers = () => {
@@ -73,14 +76,10 @@ function TikTokEventsOverlayContent() {
 
   // Safe dismiss routine: guarantees clean transition and resets all flags
   const dismissCurrentEvent = (targetEventId?: string) => {
-    if (
-      targetEventId &&
-      activeEventIdRef.current &&
-      activeEventIdRef.current !== targetEventId
-    ) {
+    if (targetEventId && activeEventIdRef.current !== targetEventId) {
       return;
     }
-    if (isDismissingRef.current) return;
+    if (!activeEventIdRef.current || isDismissingRef.current) return;
     isDismissingRef.current = true;
 
     clearEventTimers();
@@ -106,6 +105,25 @@ function TikTokEventsOverlayContent() {
     }, 250);
   };
 
+  // If the user switches from /test-overlay tab to this overlay tab while an event is active,
+  // reset the visible timestamp & ensure the popup stays visible for at least 3.2s after tab switch
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && activeEventIdRef.current && !isDismissingRef.current) {
+        eventVisibleSinceRef.current = Date.now();
+        const activeId = activeEventIdRef.current;
+        if (dismissTimeoutRef.current) {
+          clearTimeout(dismissTimeoutRef.current);
+          dismissTimeoutRef.current = setTimeout(() => {
+            dismissCurrentEvent(activeId);
+          }, 3200);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
+
   // Initialize persistent Audio element & unlock autoplay on mount
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -127,6 +145,7 @@ function TikTokEventsOverlayContent() {
         silent.volume = 0.01;
         silent.play().catch(() => {});
       } catch {}
+      setAudioUnlocked(true);
       window.removeEventListener("click", unlock);
       window.removeEventListener("keydown", unlock);
     };
@@ -239,95 +258,124 @@ function TikTokEventsOverlayContent() {
     // Guaranteed 100% visible from millisecond 0 (prevents opacity-0 race condition)
     setIsExiting(false);
     isDismissingRef.current = false;
+    playBlockedRef.current = false;
     activeEventIdRef.current = eventId;
+    eventVisibleSinceRef.current = Date.now();
     clearEventTimers();
     stopAudio();
 
     const speechText = currentEvent.speechText || "";
 
+    // Helper to compute remaining hold time so popup NEVER flashes for only 1 second
+    const getHoldDelay = (postAudioMs = 1200, minTotalVisibleMs = 3800) => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return 4500;
+      }
+      const elapsedVisible = Date.now() - eventVisibleSinceRef.current;
+      return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
+    };
+
     // 1. DYNAMIC WATCHDOG TIMER: Always guarantees the card auto-dismisses safely
     const estimatedDuration = Math.min(
       15000,
-      Math.max(5000, Math.ceil(speechText.length * 110) + 3000)
+      Math.max(5500, Math.ceil(speechText.length * 110) + 3500)
     );
     watchdogTimeoutRef.current = setTimeout(() => {
       dismissCurrentEvent(eventId);
     }, estimatedDuration);
 
-    // 2. PLAY TTS AUDIO VIA HTML5 AUDIO ELEMENT
+    // 2. PLAY TTS AUDIO VIA HTML5 AUDIO ELEMENT (After ensuring card is painted on screen)
+    let rafId: number | null = null;
     if (speechText) {
-      try {
-        const audio = audioRef.current;
-        if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
-          audio.volume = 1.0;
+      rafId = window.requestAnimationFrame(() => {
+        if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+        try {
+          const audio = audioRef.current;
+          if (audio) {
+            audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+            audio.volume = 1.0;
 
-          // When exact audio duration is loaded, adapt watchdog accurately
-          audio.onloadedmetadata = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-              const audioMs = Math.round(audio.duration * 1000);
-              if (watchdogTimeoutRef.current) {
-                clearTimeout(watchdogTimeoutRef.current);
-              }
-              watchdogTimeoutRef.current = setTimeout(() => {
-                dismissCurrentEvent(eventId);
-              }, audioMs + 2500);
-            }
-          };
-
-          // Audio finished cleanly: give smooth 650ms pause then dismiss
-          audio.onended = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-            dismissTimeoutRef.current = setTimeout(() => {
-              dismissCurrentEvent(eventId);
-            }, 650);
-          };
-
-          audio.onerror = (e) => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-            console.warn("TTS audio failed to load:", e);
-            if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-            // Keep visual popup readable for 3.2s even if TTS audio fails
-            dismissTimeoutRef.current = setTimeout(() => {
-              dismissCurrentEvent(eventId);
-            }, 3200);
-          };
-
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch((err) => {
+            // When exact audio duration is loaded, adapt watchdog accurately
+            audio.onloadedmetadata = () => {
               if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
-              if (err.name === "AbortError") return;
-              console.warn("Audio autoplay blocked or interrupted:", err);
+              if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+                const audioMs = Math.round(audio.duration * 1000);
+                if (watchdogTimeoutRef.current) {
+                  clearTimeout(watchdogTimeoutRef.current);
+                }
+                watchdogTimeoutRef.current = setTimeout(() => {
+                  dismissCurrentEvent(eventId);
+                }, audioMs + 2800);
+
+                // If autoplay was blocked in this tab, sync display duration with exact audio length
+                if (playBlockedRef.current) {
+                  if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+                  dismissTimeoutRef.current = setTimeout(() => {
+                    dismissCurrentEvent(eventId);
+                  }, Math.max(3800, audioMs + 1200));
+                }
+              }
+            };
+
+            // Audio finished cleanly: guarantee at least 3.8s total visible time & 1.2s post-speech hold
+            audio.onended = () => {
+              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
               if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
               dismissTimeoutRef.current = setTimeout(() => {
                 dismissCurrentEvent(eventId);
-              }, 3200);
-            });
+              }, getHoldDelay(1200, 3800));
+            };
+
+            audio.onerror = (e) => {
+              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+              console.warn("TTS audio failed to load:", e);
+              if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+              dismissTimeoutRef.current = setTimeout(() => {
+                dismissCurrentEvent(eventId);
+              }, getHoldDelay(3500, 4200));
+            };
+
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+              playPromise.catch((err) => {
+                if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+                if (err.name === "AbortError") return;
+                playBlockedRef.current = true;
+                if (err.name === "NotAllowedError") {
+                  setAudioUnlocked(false);
+                }
+                console.warn("Audio autoplay blocked or interrupted:", err);
+                const knownAudioMs =
+                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                    ? Math.round(audio.duration * 1000)
+                    : 0;
+                if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+                dismissTimeoutRef.current = setTimeout(() => {
+                  dismissCurrentEvent(eventId);
+                }, Math.max(4200, knownAudioMs + 1200));
+              });
+            }
           }
+        } catch (err) {
+          console.error("TTS playback error:", err);
+          if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
+          dismissTimeoutRef.current = setTimeout(() => {
+            dismissCurrentEvent(eventId);
+          }, getHoldDelay(3500, 4200));
         }
-      } catch (err) {
-        console.error("TTS playback error:", err);
-        if (dismissTimeoutRef.current) clearTimeout(dismissTimeoutRef.current);
-        dismissTimeoutRef.current = setTimeout(() => {
-          dismissCurrentEvent(eventId);
-        }, 3200);
-      }
+      });
     } else {
       dismissTimeoutRef.current = setTimeout(() => {
         dismissCurrentEvent(eventId);
-      }, 3500);
+      }, 4000);
     }
 
     return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
       clearEventTimers();
       stopAudio();
     };
   }, [currentEvent]);
-
-  if (!currentEvent) return null;
 
   // Positioning helper
   const getPositionClasses = () => {
@@ -347,8 +395,8 @@ function TikTokEventsOverlayContent() {
   };
 
   // Badge styling per event
-  const getBadgeStyle = () => {
-    switch (currentEvent.eventType) {
+  const getBadgeStyle = (type?: string) => {
+    switch (type) {
       case "gift":
         return "bg-gradient-to-r from-amber-500 to-yellow-400 text-black border-yellow-300 font-black";
       case "chat":
@@ -383,6 +431,24 @@ function TikTokEventsOverlayContent() {
     <div
       className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none ${getPositionClasses()}`}
     >
+      {!audioUnlocked && (
+        <div
+          onClick={() => {
+            try {
+              const silent = new Audio(
+                "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
+              );
+              silent.volume = 0.01;
+              silent.play().catch(() => {});
+            } catch {}
+            setAudioUnlocked(true);
+          }}
+          className="fixed top-4 left-1/2 -translate-x-1/2 bg-black/85 text-yellow-300 text-xs font-bold px-4 py-2 rounded-full border border-yellow-400 pointer-events-auto cursor-pointer animate-pulse z-50 shadow-lg flex items-center gap-1.5"
+        >
+          <span>🔊</span> Klik layar untuk mengaktifkan suara audio
+        </div>
+      )}
+      {currentEvent && (
       <div
         key={currentEvent.id}
         style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
@@ -400,7 +466,7 @@ function TikTokEventsOverlayContent() {
             <div className="flex items-center gap-2">
               <span className="text-xl shrink-0">{currentEvent.badgeEmoji}</span>
               <span
-                className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle()}`}
+                className={`px-2.5 py-0.5 rounded-lg border text-[11px] tracking-wider uppercase font-black shadow-sm ${getBadgeStyle(currentEvent.eventType)}`}
               >
                 {getBadgeLabel(currentEvent.eventType)}
               </span>
@@ -425,6 +491,7 @@ function TikTokEventsOverlayContent() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

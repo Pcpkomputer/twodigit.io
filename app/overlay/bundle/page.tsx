@@ -168,6 +168,8 @@ function BundleOverlayContent() {
   // Active item tracking refs to prevent async dismiss race conditions
   const activeEventIdRef = useRef<string | null>(null);
   const isDismissingEventRef = useRef<boolean>(false);
+  const eventVisibleSinceRef = useRef<number>(0);
+  const eventPlayBlockedRef = useRef<boolean>(false);
   const activeChatIdRef = useRef<string | null>(null);
 
   // Bounded LRU Deduplication Sets (Max 100 items to guarantee zero memory growth)
@@ -232,14 +234,10 @@ function BundleOverlayContent() {
 
   // Helper: Safe dismiss routine for TikTok Live Events
   const dismissActiveEvent = (targetEventId?: string) => {
-    if (
-      targetEventId &&
-      activeEventIdRef.current &&
-      activeEventIdRef.current !== targetEventId
-    ) {
+    if (targetEventId && activeEventIdRef.current !== targetEventId) {
       return;
     }
-    if (isDismissingEventRef.current) return;
+    if (!activeEventIdRef.current || isDismissingEventRef.current) return;
     isDismissingEventRef.current = true;
 
     clearEventTimers();
@@ -264,6 +262,25 @@ function BundleOverlayContent() {
       }, 200);
     }, 250);
   };
+
+  // If the user switches from /test-overlay tab to this overlay tab while an event is active,
+  // reset the visible timestamp & ensure the popup stays visible for at least 3.2s after tab switch
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (!document.hidden && activeEventIdRef.current && !isDismissingEventRef.current) {
+        eventVisibleSinceRef.current = Date.now();
+        const activeId = activeEventIdRef.current;
+        if (eventDismissTimerRef.current) {
+          clearTimeout(eventDismissTimerRef.current);
+          eventDismissTimerRef.current = setTimeout(() => {
+            dismissActiveEvent(activeId);
+          }, 3200);
+        }
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", handleVisibilityChange);
+  }, []);
 
   // Helper: Stop Chat Audio cleanly
   const stopChatAudio = () => {
@@ -481,6 +498,7 @@ function BundleOverlayContent() {
 
         // If static preview card is currently displayed, clear it so real simulation events can play
         setCurrentEvent((curr) => (curr && curr.id === "prev-event" ? null : curr));
+        setCurrentChat((curr) => (curr && curr.id === "prev-chat" ? null : curr));
 
         setEventQueue((prev) => {
           // SMART ANTI-COLLISION:
@@ -637,12 +655,13 @@ function BundleOverlayContent() {
 
   // TikTok Live Events Queue Processor (Strictly paused while Host Chat is active, queued, or exiting)
   useEffect(() => {
+    const isRealChatActive = currentChat !== null && currentChat.id !== "prev-chat";
     if (
       currentEvent === null &&
       eventQueue.length > 0 &&
       !isEventExiting &&
       !isEventTransitioning &&
-      currentChat === null &&
+      !isRealChatActive &&
       chatQueue.length === 0 &&
       !isChatExiting
     ) {
@@ -677,81 +696,114 @@ function BundleOverlayContent() {
     // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
     setIsEventExiting(false);
     isDismissingEventRef.current = false;
+    eventPlayBlockedRef.current = false;
     activeEventIdRef.current = eventId;
+    eventVisibleSinceRef.current = Date.now();
     clearEventTimers();
     stopEventAudio();
 
     const speechText = currentEvent.speechText || "";
+
+    // Helper to compute remaining hold time so popup NEVER flashes for only 1 second
+    const getHoldDelay = (postAudioMs = 1200, minTotalVisibleMs = 3800) => {
+      if (typeof document !== "undefined" && document.hidden) {
+        return 4500;
+      }
+      const elapsedVisible = Date.now() - eventVisibleSinceRef.current;
+      return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
+    };
+
     // Dynamic non-blocking watchdog timer
     const estimatedDuration = Math.min(
       15000,
-      Math.max(5000, Math.ceil(speechText.length * 110) + 3000)
+      Math.max(5500, Math.ceil(speechText.length * 110) + 3500)
     );
     eventWatchdogTimerRef.current = setTimeout(() => {
       dismissActiveEvent(eventId);
     }, estimatedDuration);
 
+    let rafId: number | null = null;
     if (speechText) {
-      try {
-        const audio = eventAudioRef.current;
-        if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
-          audio.volume = 1.0;
+      rafId = window.requestAnimationFrame(() => {
+        if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+        try {
+          const audio = eventAudioRef.current;
+          if (audio) {
+            audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+            audio.volume = 1.0;
 
-          // When exact audio length is known, adapt dismiss time accurately
-          audio.onloadedmetadata = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-              const audioMs = Math.round(audio.duration * 1000);
-              if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
-              eventWatchdogTimerRef.current = setTimeout(() => {
-                dismissActiveEvent(eventId);
-              }, audioMs + 2500);
-            }
-          };
-
-          audio.onended = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => {
-              dismissActiveEvent(eventId);
-            }, 650);
-          };
-
-          audio.onerror = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(() => {
-              dismissActiveEvent(eventId);
-            }, 3200);
-          };
-
-          const playPromise = audio.play();
-          if (playPromise !== undefined) {
-            playPromise.catch((err) => {
+            // When exact audio length is known, adapt dismiss time accurately
+            audio.onloadedmetadata = () => {
               if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
-              if (err.name === "AbortError") return;
+              if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
+                const audioMs = Math.round(audio.duration * 1000);
+                if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
+                eventWatchdogTimerRef.current = setTimeout(() => {
+                  dismissActiveEvent(eventId);
+                }, audioMs + 2800);
+
+                // If autoplay was blocked in this tab, sync display duration with exact audio length
+                if (eventPlayBlockedRef.current) {
+                  if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+                  eventDismissTimerRef.current = setTimeout(() => {
+                    dismissActiveEvent(eventId);
+                  }, Math.max(3800, audioMs + 1200));
+                }
+              }
+            };
+
+            audio.onended = () => {
+              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
               if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
               eventDismissTimerRef.current = setTimeout(() => {
                 dismissActiveEvent(eventId);
-              }, 3200);
-            });
+              }, getHoldDelay(1200, 3800));
+            };
+
+            audio.onerror = () => {
+              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+              eventDismissTimerRef.current = setTimeout(() => {
+                dismissActiveEvent(eventId);
+              }, getHoldDelay(3500, 4200));
+            };
+
+            const playPromise = audio.play();
+            if (playPromise !== undefined) {
+              playPromise.catch((err) => {
+                if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
+                if (err.name === "AbortError") return;
+                eventPlayBlockedRef.current = true;
+                if (err.name === "NotAllowedError") {
+                  setAudioUnlocked(false);
+                }
+                const knownAudioMs =
+                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                    ? Math.round(audio.duration * 1000)
+                    : 0;
+                if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+                eventDismissTimerRef.current = setTimeout(() => {
+                  dismissActiveEvent(eventId);
+                }, Math.max(4200, knownAudioMs + 1200));
+              });
+            }
           }
+        } catch {
+          if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+          eventDismissTimerRef.current = setTimeout(() => {
+            dismissActiveEvent(eventId);
+          }, getHoldDelay(3500, 4200));
         }
-      } catch {
-        if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-        eventDismissTimerRef.current = setTimeout(() => {
-          dismissActiveEvent(eventId);
-        }, 3200);
-      }
+      });
     } else {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
       eventDismissTimerRef.current = setTimeout(() => {
         dismissActiveEvent(eventId);
-      }, 3500);
+      }, 4000);
     }
 
     return () => {
+      if (rafId !== null) window.cancelAnimationFrame(rafId);
       clearEventTimers();
       stopEventAudio();
     };

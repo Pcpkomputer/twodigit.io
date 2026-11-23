@@ -12,24 +12,20 @@ function TikTokEventsOverlayContent() {
 
   const [currentEvent, setCurrentEvent] = useState<TikTokEventPayload | null>(null);
   const [queue, setQueue] = useState<TikTokEventPayload[]>([]);
-  const [isExiting, setIsExiting] = useState<boolean>(false);
-  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
+  // STRICT ID GUARD: exitingEventId tracks the exact ID of the event exiting, preventing cross-event opacity leaks
+  const [exitingEventId, setExitingEventId] = useState<string | null>(null);
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const currentEventIdRef = useRef<string | null>(null);
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const transitionTimerRef = useRef<NodeJS.Timeout | null>(null);
-
-  const activeEventIdRef = useRef<string | null>(null);
-  const isDismissingRef = useRef<boolean>(false);
   const eventVisibleSinceRef = useRef<number>(0);
-  const playBlockedRef = useRef<boolean>(false);
 
-  // Clear timers belonging to the active event
-  const clearEventTimers = () => {
+  // Clear timers belonging to the active event (does NOT touch exitTimer)
+  const clearActiveEventTimers = () => {
     if (dismissTimerRef.current) {
       clearTimeout(dismissTimerRef.current);
       dismissTimerRef.current = null;
@@ -37,19 +33,6 @@ function TikTokEventsOverlayContent() {
     if (watchdogTimerRef.current) {
       clearTimeout(watchdogTimerRef.current);
       watchdogTimerRef.current = null;
-    }
-    if (exitTimerRef.current) {
-      clearTimeout(exitTimerRef.current);
-      exitTimerRef.current = null;
-    }
-  };
-
-  // Clear all timers including transition timer (used on unmount)
-  const clearAllTimers = () => {
-    clearEventTimers();
-    if (transitionTimerRef.current) {
-      clearTimeout(transitionTimerRef.current);
-      transitionTimerRef.current = null;
     }
   };
 
@@ -75,47 +58,45 @@ function TikTokEventsOverlayContent() {
     }
   };
 
-  // Safe dismiss routine: guarantees clean transition and resets all flags
-  const dismissCurrentEvent = (targetEventId?: string) => {
-    if (targetEventId && activeEventIdRef.current !== targetEventId) {
+  // Strict ID-Guarded Dismiss Routine: CAN NEVER DISMISS OR FADE OUT A DIFFERENT EVENT!
+  const dismissCurrentEvent = (targetEventId: string) => {
+    // If the active event ID doesn't match targetEventId, this timer belongs to an old/different event -> IGNORE!
+    if (!targetEventId || currentEventIdRef.current !== targetEventId) {
       return;
     }
-    if (!activeEventIdRef.current || isDismissingRef.current) return;
-    isDismissingRef.current = true;
 
-    clearEventTimers();
+    clearActiveEventTimers();
     stopAudio();
-    setIsExiting(true);
 
+    // Mark THIS EXACT event ID as exiting
+    setExitingEventId(targetEventId);
+
+    // After CSS fade-out transition (280ms), atomically unmount the event if ID still matches
+    if (exitTimerRef.current) {
+      clearTimeout(exitTimerRef.current);
+    }
     exitTimerRef.current = setTimeout(() => {
       exitTimerRef.current = null;
-      setCurrentEvent(null);
-      setIsExiting(false);
-      activeEventIdRef.current = null;
-      isDismissingRef.current = false;
-
-      // 150ms breather before showing next item (prevents visual collision & overlapping audio)
-      setIsTransitioning(true);
-      if (transitionTimerRef.current) {
-        clearTimeout(transitionTimerRef.current);
+      if (currentEventIdRef.current === targetEventId) {
+        currentEventIdRef.current = null;
+        setExitingEventId(null);
+        setCurrentEvent(null);
       }
-      transitionTimerRef.current = setTimeout(() => {
-        transitionTimerRef.current = null;
-        setIsTransitioning(false);
-      }, 150);
     }, 280);
   };
 
   // Tab switch recovery: ensure the card remains visible if user switches tabs
   useEffect(() => {
     const handleVisibilityChange = () => {
-      if (!document.hidden && activeEventIdRef.current && !isDismissingRef.current) {
+      if (!document.hidden && currentEventIdRef.current) {
         eventVisibleSinceRef.current = Date.now();
-        const activeId = activeEventIdRef.current;
+        const activeId = currentEventIdRef.current;
         if (dismissTimerRef.current) {
           clearTimeout(dismissTimerRef.current);
           dismissTimerRef.current = setTimeout(() => {
-            dismissCurrentEvent(activeId);
+            if (currentEventIdRef.current === activeId) {
+              dismissCurrentEvent(activeId);
+            }
           }, 3200);
         }
       }
@@ -156,7 +137,10 @@ function TikTokEventsOverlayContent() {
     return () => {
       window.removeEventListener("click", unlock);
       window.removeEventListener("keydown", unlock);
-      clearAllTimers();
+      clearActiveEventTimers();
+      if (exitTimerRef.current) {
+        clearTimeout(exitTimerRef.current);
+      }
       stopAudio();
       audioRef.current = null;
     };
@@ -165,7 +149,7 @@ function TikTokEventsOverlayContent() {
   // Demo preview mode
   useEffect(() => {
     if (isPreview && !currentEvent) {
-      setCurrentEvent({
+      const previewItem: TikTokEventPayload = {
         id: "preview-1",
         eventType: "gift",
         uniqueId: "budi_gaming",
@@ -177,8 +161,10 @@ function TikTokEventsOverlayContent() {
         badgeEmoji: "🎁",
         timestamp: new Date().toISOString(),
         priority: 1,
-      });
-      setIsExiting(false);
+      };
+      currentEventIdRef.current = "preview-1";
+      setCurrentEvent(previewItem);
+      setExitingEventId(null);
     }
   }, [isPreview]);
 
@@ -197,7 +183,14 @@ function TikTokEventsOverlayContent() {
       console.log("Overlay received TikTok Live Event:", data.eventType, data.nickname);
 
       // If static preview card is currently displayed, clear it so real simulation events can play
-      setCurrentEvent((curr) => (curr && curr.id === "preview-1" ? null : curr));
+      setCurrentEvent((curr) => {
+        if (curr && curr.id === "preview-1") {
+          currentEventIdRef.current = null;
+          setExitingEventId(null);
+          return null;
+        }
+        return curr;
+      });
 
       setQueue((prev) => {
         // Prevent duplicate events
@@ -212,11 +205,11 @@ function TikTokEventsOverlayContent() {
           );
         }
 
-        // Keep up to 20 pending events so rapid multi-click testing never drops categories
+        // Buffer up to 25 items so fast multi-click testing never drops any category
         let updated = [...filtered, data];
-        if (updated.length > 20) {
+        if (updated.length > 25) {
           const gifts = updated.filter((x) => x.priority === 1);
-          const others = updated.filter((x) => x.priority > 1).slice(-15);
+          const others = updated.filter((x) => x.priority > 1).slice(-18);
           updated = [...gifts, ...others];
         }
 
@@ -232,36 +225,30 @@ function TikTokEventsOverlayContent() {
     };
   }, []);
 
-  // Queue Consumer: Deterministically picks next item when idle
+  // Queue Consumer: Deterministically picks next item when idle and previous exit animation has cleared
   useEffect(() => {
-    if (currentEvent === null && queue.length > 0 && !isExiting && !isTransitioning) {
+    if (currentEvent === null && queue.length > 0 && exitingEventId === null) {
       const [nextItem, ...remaining] = queue;
-      isDismissingRef.current = false;
-      setIsExiting(false);
+      currentEventIdRef.current = nextItem.id;
+      setExitingEventId(null);
       setCurrentEvent(nextItem);
       setQueue(remaining);
     }
-  }, [currentEvent, queue, isExiting, isTransitioning]);
+  }, [currentEvent, queue, exitingEventId]);
 
   // Active event display and TTS audio playback
   useEffect(() => {
     if (!currentEvent) {
-      setIsExiting(false);
-      activeEventIdRef.current = null;
-      isDismissingRef.current = false;
       return;
     }
     if (currentEvent.id === "preview-1") return;
 
     const eventId = currentEvent.id;
-
-    // Guaranteed 100% visible from millisecond 0
-    setIsExiting(false);
-    isDismissingRef.current = false;
-    playBlockedRef.current = false;
-    activeEventIdRef.current = eventId;
+    currentEventIdRef.current = eventId;
     eventVisibleSinceRef.current = Date.now();
-    clearEventTimers();
+
+    // Clear stale event timers
+    clearActiveEventTimers();
     stopAudio();
 
     const speechText = currentEvent.speechText || "";
@@ -278,7 +265,9 @@ function TikTokEventsOverlayContent() {
       Math.max(6000, Math.ceil(speechText.length * 120) + 4000)
     );
     watchdogTimerRef.current = setTimeout(() => {
-      dismissCurrentEvent(eventId);
+      if (currentEventIdRef.current === eventId) {
+        dismissCurrentEvent(eventId);
+      }
     }, estimatedDuration);
 
     // 2. PLAY TTS AUDIO DIRECTLY (Synchronous call - zero rAF delay to avoid background tab freezes)
@@ -291,50 +280,47 @@ function TikTokEventsOverlayContent() {
 
           // When exact audio duration is loaded, adapt watchdog accurately
           audio.onloadedmetadata = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            if (currentEventIdRef.current !== eventId) return;
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
               if (watchdogTimerRef.current) {
                 clearTimeout(watchdogTimerRef.current);
               }
               watchdogTimerRef.current = setTimeout(() => {
-                dismissCurrentEvent(eventId);
-              }, audioMs + 3200);
-
-              // If autoplay was blocked in this tab, sync display duration with exact audio length
-              if (playBlockedRef.current) {
-                if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
-                dismissTimerRef.current = setTimeout(() => {
+                if (currentEventIdRef.current === eventId) {
                   dismissCurrentEvent(eventId);
-                }, Math.max(4000, audioMs + 1500));
-              }
+                }
+              }, audioMs + 3200);
             }
           };
 
           // Audio finished cleanly: hold card for reading time (at least 4.0s total display)
           audio.onended = () => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            if (currentEventIdRef.current !== eventId) return;
             if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
             dismissTimerRef.current = setTimeout(() => {
-              dismissCurrentEvent(eventId);
+              if (currentEventIdRef.current === eventId) {
+                dismissCurrentEvent(eventId);
+              }
             }, getHoldDelay(1500, 4000));
           };
 
           audio.onerror = (e) => {
-            if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+            if (currentEventIdRef.current !== eventId) return;
             console.warn("TTS audio failed to load:", e);
             if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
             dismissTimerRef.current = setTimeout(() => {
-              dismissCurrentEvent(eventId);
+              if (currentEventIdRef.current === eventId) {
+                dismissCurrentEvent(eventId);
+              }
             }, getHoldDelay(3500, 4200));
           };
 
           const playPromise = audio.play();
           if (playPromise !== undefined) {
             playPromise.catch((err) => {
-              if (activeEventIdRef.current !== eventId || isDismissingRef.current) return;
+              if (currentEventIdRef.current !== eventId) return;
               if (err.name === "AbortError") return;
-              playBlockedRef.current = true;
               if (err.name === "NotAllowedError") {
                 setAudioUnlocked(false);
               }
@@ -345,7 +331,9 @@ function TikTokEventsOverlayContent() {
                   : 0;
               if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
               dismissTimerRef.current = setTimeout(() => {
-                dismissCurrentEvent(eventId);
+                if (currentEventIdRef.current === eventId) {
+                  dismissCurrentEvent(eventId);
+                }
               }, Math.max(4200, knownAudioMs + 1500));
             });
           }
@@ -354,19 +342,22 @@ function TikTokEventsOverlayContent() {
         console.error("TTS playback error:", err);
         if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
         dismissTimerRef.current = setTimeout(() => {
-          dismissCurrentEvent(eventId);
+          if (currentEventIdRef.current === eventId) {
+            dismissCurrentEvent(eventId);
+          }
         }, getHoldDelay(3500, 4200));
       }
     } else {
       // Event without audio text: display for 4.2 seconds
       dismissTimerRef.current = setTimeout(() => {
-        dismissCurrentEvent(eventId);
+        if (currentEventIdRef.current === eventId) {
+          dismissCurrentEvent(eventId);
+        }
       }, 4200);
     }
 
     return () => {
-      clearEventTimers();
-      stopAudio();
+      clearActiveEventTimers();
     };
   }, [currentEvent]);
 
@@ -420,6 +411,9 @@ function TikTokEventsOverlayContent() {
     }
   };
 
+  // STRICT ID MATCH: this card ONLY has opacity-0 if its exact ID equals exitingEventId!
+  const isCardExiting = currentEvent && exitingEventId === currentEvent.id;
+
   return (
     <div
       className={`fixed inset-0 w-screen h-screen bg-transparent overflow-hidden flex select-none font-sans pointer-events-none ${getPositionClasses()}`}
@@ -447,7 +441,7 @@ function TikTokEventsOverlayContent() {
           style={{ willChange: "transform, opacity", transform: "translateZ(0)" }}
           onClick={() => dismissCurrentEvent(currentEvent.id)}
           className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${
-            isExiting
+            isCardExiting
               ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
               : "opacity-100 translate-y-0 scale-100"
           }`}

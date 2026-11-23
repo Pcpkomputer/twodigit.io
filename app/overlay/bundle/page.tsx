@@ -130,6 +130,7 @@ function BundleOverlayContent() {
   const [currentEvent, setCurrentEvent] = useState<TikTokEventPayload | null>(null);
   const [eventQueue, setEventQueue] = useState<TikTokEventPayload[]>([]);
   const [isEventExiting, setIsEventExiting] = useState<boolean>(false);
+  const [isEventTransitioning, setIsEventTransitioning] = useState<boolean>(false);
 
   // State: Host Interactive Chat & Announcement
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
@@ -158,11 +159,15 @@ function BundleOverlayContent() {
   // Dismiss timers
   const alertDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const eventDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const eventWatchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const eventExitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const eventTransitionTimerRef = useRef<NodeJS.Timeout | null>(null);
   const chatDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sfxDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Active item tracking refs to prevent async dismiss race conditions
   const activeEventIdRef = useRef<string | null>(null);
+  const isDismissingEventRef = useRef<boolean>(false);
   const activeChatIdRef = useRef<string | null>(null);
 
   // Bounded LRU Deduplication Sets (Max 100 items to guarantee zero memory growth)
@@ -181,45 +186,95 @@ function BundleOverlayContent() {
     return false;
   };
 
+  // Helper: Clear active event lifecycle timers (does NOT clear eventTransitionTimerRef)
+  const clearEventTimers = () => {
+    if (eventDismissTimerRef.current) {
+      clearTimeout(eventDismissTimerRef.current);
+      eventDismissTimerRef.current = null;
+    }
+    if (eventWatchdogTimerRef.current) {
+      clearTimeout(eventWatchdogTimerRef.current);
+      eventWatchdogTimerRef.current = null;
+    }
+    if (eventExitTimerRef.current) {
+      clearTimeout(eventExitTimerRef.current);
+      eventExitTimerRef.current = null;
+    }
+  };
+
   // Helper: Stop Alert Audio cleanly
   const stopAlertAudio = () => {
     if (alertAudioRef.current) {
+      alertAudioRef.current.onended = null;
+      alertAudioRef.current.onerror = null;
       try {
         alertAudioRef.current.pause();
-        alertAudioRef.current.removeAttribute("src");
-        alertAudioRef.current.load();
-        alertAudioRef.current.onended = null;
-        alertAudioRef.current.onerror = null;
+        alertAudioRef.current.currentTime = 0;
       } catch {}
     }
   };
 
-  // Helper: Stop Event Audio cleanly
+  // Helper: Stop Event Audio cleanly (null listeners FIRST, no empty load() error trigger)
   const stopEventAudio = () => {
     if (eventAudioRef.current) {
+      eventAudioRef.current.onended = null;
+      eventAudioRef.current.onerror = null;
+      eventAudioRef.current.onstalled = null;
+      eventAudioRef.current.onloadedmetadata = null;
+      eventAudioRef.current.onplay = null;
+      eventAudioRef.current.onpause = null;
       try {
         eventAudioRef.current.pause();
-        eventAudioRef.current.removeAttribute("src");
-        eventAudioRef.current.load();
-        eventAudioRef.current.onended = null;
-        eventAudioRef.current.onerror = null;
-        eventAudioRef.current.onstalled = null;
-        eventAudioRef.current.onloadedmetadata = null;
+        eventAudioRef.current.currentTime = 0;
       } catch {}
     }
+  };
+
+  // Helper: Safe dismiss routine for TikTok Live Events
+  const dismissActiveEvent = (targetEventId?: string) => {
+    if (
+      targetEventId &&
+      activeEventIdRef.current &&
+      activeEventIdRef.current !== targetEventId
+    ) {
+      return;
+    }
+    if (isDismissingEventRef.current) return;
+    isDismissingEventRef.current = true;
+
+    clearEventTimers();
+    stopEventAudio();
+    setIsEventExiting(true);
+
+    eventExitTimerRef.current = setTimeout(() => {
+      eventExitTimerRef.current = null;
+      setCurrentEvent(null);
+      setIsEventExiting(false);
+      activeEventIdRef.current = null;
+      isDismissingEventRef.current = false;
+
+      // 200ms breather before showing next item
+      setIsEventTransitioning(true);
+      if (eventTransitionTimerRef.current) {
+        clearTimeout(eventTransitionTimerRef.current);
+      }
+      eventTransitionTimerRef.current = setTimeout(() => {
+        eventTransitionTimerRef.current = null;
+        setIsEventTransitioning(false);
+      }, 200);
+    }, 250);
   };
 
   // Helper: Stop Chat Audio cleanly
   const stopChatAudio = () => {
     if (chatAudioRef.current) {
+      chatAudioRef.current.onended = null;
+      chatAudioRef.current.onerror = null;
+      chatAudioRef.current.onstalled = null;
+      chatAudioRef.current.onloadedmetadata = null;
       try {
         chatAudioRef.current.pause();
-        chatAudioRef.current.removeAttribute("src");
-        chatAudioRef.current.load();
-        chatAudioRef.current.onended = null;
-        chatAudioRef.current.onerror = null;
-        chatAudioRef.current.onstalled = null;
-        chatAudioRef.current.onloadedmetadata = null;
+        chatAudioRef.current.currentTime = 0;
       } catch {}
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
@@ -232,12 +287,11 @@ function BundleOverlayContent() {
   // Helper: Stop SFX Audio cleanly
   const stopSfxAudio = () => {
     if (sfxAudioRef.current) {
+      sfxAudioRef.current.onended = null;
+      sfxAudioRef.current.onerror = null;
       try {
         sfxAudioRef.current.pause();
-        sfxAudioRef.current.removeAttribute("src");
-        sfxAudioRef.current.load();
-        sfxAudioRef.current.onended = null;
-        sfxAudioRef.current.onerror = null;
+        sfxAudioRef.current.currentTime = 0;
       } catch {}
     }
   };
@@ -298,6 +352,11 @@ function BundleOverlayContent() {
     window.addEventListener("click", unlock);
     return () => {
       window.removeEventListener("click", unlock);
+      clearEventTimers();
+      if (eventTransitionTimerRef.current) {
+        clearTimeout(eventTransitionTimerRef.current);
+        eventTransitionTimerRef.current = null;
+      }
       stopAlertAudio();
       stopEventAudio();
       stopChatAudio();
@@ -420,6 +479,9 @@ function BundleOverlayContent() {
         const isDuplicate = addBoundedId(processedEventIdsRef, data.id);
         if (isDuplicate) return;
 
+        // If static preview card is currently displayed, clear it so real simulation events can play
+        setCurrentEvent((curr) => (curr && curr.id === "prev-event" ? null : curr));
+
         setEventQueue((prev) => {
           // SMART ANTI-COLLISION:
           // If a viewer sends a 'chat' or 'gift', remove any pending 'join' greeting for that same viewer!
@@ -430,7 +492,7 @@ function BundleOverlayContent() {
             );
           }
           const next = [...filtered, data];
-          return next.slice(-6).sort((a, b) => (a.priority || 4) - (b.priority || 4));
+          return next.slice(-15).sort((a, b) => (a.priority || 4) - (b.priority || 4));
         });
       });
     }
@@ -443,13 +505,17 @@ function BundleOverlayContent() {
         if (isDuplicate) return;
 
         // Instantly silence & quick-finish any active greeting so Host Chat has 100% stage priority
-        if (eventDismissTimerRef.current) {
-          clearTimeout(eventDismissTimerRef.current);
-          eventDismissTimerRef.current = null;
+        clearEventTimers();
+        if (eventTransitionTimerRef.current) {
+          clearTimeout(eventTransitionTimerRef.current);
+          eventTransitionTimerRef.current = null;
         }
         stopEventAudio();
+        activeEventIdRef.current = null;
+        isDismissingEventRef.current = false;
         setCurrentEvent(null);
         setIsEventExiting(false);
+        setIsEventTransitioning(false);
 
         setChatQueue((prev) => {
           const next = [...prev, data];
@@ -575,49 +641,45 @@ function BundleOverlayContent() {
       currentEvent === null &&
       eventQueue.length > 0 &&
       !isEventExiting &&
+      !isEventTransitioning &&
       currentChat === null &&
       chatQueue.length === 0 &&
       !isChatExiting
     ) {
       const [nextEvent, ...remaining] = eventQueue;
+      isDismissingEventRef.current = false;
+      setIsEventExiting(false);
       setCurrentEvent(nextEvent);
       setEventQueue(remaining);
     }
-  }, [currentEvent, eventQueue, isEventExiting, currentChat, chatQueue, isChatExiting]);
+  }, [
+    currentEvent,
+    eventQueue,
+    isEventExiting,
+    isEventTransitioning,
+    currentChat,
+    chatQueue,
+    isChatExiting,
+  ]);
 
   // TikTok Live Events TTS Player & Guaranteed Auto-Dismiss
   useEffect(() => {
     if (!currentEvent) {
       setIsEventExiting(false);
       activeEventIdRef.current = null;
+      isDismissingEventRef.current = false;
       return;
     }
-    if (isPreview) return;
+    if (currentEvent.id === "prev-event") return;
+
+    const eventId = currentEvent.id;
 
     // Immediately ensure card is 100% visible from millisecond 0 (prevents opacity-0 race condition)
     setIsEventExiting(false);
-    activeEventIdRef.current = currentEvent.id;
-
-    if (eventDismissTimerRef.current) {
-      clearTimeout(eventDismissTimerRef.current);
-      eventDismissTimerRef.current = null;
-    }
+    isDismissingEventRef.current = false;
+    activeEventIdRef.current = eventId;
+    clearEventTimers();
     stopEventAudio();
-
-    const dismissEvent = () => {
-      if (eventDismissTimerRef.current) {
-        clearTimeout(eventDismissTimerRef.current);
-        eventDismissTimerRef.current = null;
-      }
-      stopEventAudio();
-      setIsEventExiting(true);
-
-      setTimeout(() => {
-        setCurrentEvent(null);
-        setIsEventExiting(false);
-        activeEventIdRef.current = null;
-      }, 250);
-    };
 
     const speechText = currentEvent.speechText || "";
     // Dynamic non-blocking watchdog timer
@@ -625,7 +687,9 @@ function BundleOverlayContent() {
       15000,
       Math.max(5000, Math.ceil(speechText.length * 110) + 3000)
     );
-    eventDismissTimerRef.current = setTimeout(dismissEvent, estimatedDuration);
+    eventWatchdogTimerRef.current = setTimeout(() => {
+      dismissActiveEvent(eventId);
+    }, estimatedDuration);
 
     if (speechText) {
       try {
@@ -636,48 +700,59 @@ function BundleOverlayContent() {
 
           // When exact audio length is known, adapt dismiss time accurately
           audio.onloadedmetadata = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
             if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
               const audioMs = Math.round(audio.duration * 1000);
-              if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(dismissEvent, audioMs + 2500);
+              if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
+              eventWatchdogTimerRef.current = setTimeout(() => {
+                dismissActiveEvent(eventId);
+              }, audioMs + 2500);
             }
           };
 
           audio.onended = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 700);
+            eventDismissTimerRef.current = setTimeout(() => {
+              dismissActiveEvent(eventId);
+            }, 650);
           };
 
           audio.onerror = () => {
+            if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 1800);
-          };
-
-          audio.onstalled = () => {
-            if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-            eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+            eventDismissTimerRef.current = setTimeout(() => {
+              dismissActiveEvent(eventId);
+            }, 3200);
           };
 
           const playPromise = audio.play();
           if (playPromise !== undefined) {
             playPromise.catch((err) => {
+              if (activeEventIdRef.current !== eventId || isDismissingEventRef.current) return;
               if (err.name === "AbortError") return;
               if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-              eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+              eventDismissTimerRef.current = setTimeout(() => {
+                dismissActiveEvent(eventId);
+              }, 3200);
             });
           }
         }
       } catch {
         if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-        eventDismissTimerRef.current = setTimeout(dismissEvent, 2000);
+        eventDismissTimerRef.current = setTimeout(() => {
+          dismissActiveEvent(eventId);
+        }, 3200);
       }
     } else {
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-      eventDismissTimerRef.current = setTimeout(dismissEvent, 3000);
+      eventDismissTimerRef.current = setTimeout(() => {
+        dismissActiveEvent(eventId);
+      }, 3500);
     }
 
     return () => {
-      if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
+      clearEventTimers();
       stopEventAudio();
     };
   }, [currentEvent]);
@@ -687,13 +762,17 @@ function BundleOverlayContent() {
     if (chatQueue.length > 0) {
       // Instantly kill/quick-finish any active greeting overlay & audio
       if (currentEvent) {
-        if (eventDismissTimerRef.current) {
-          clearTimeout(eventDismissTimerRef.current);
-          eventDismissTimerRef.current = null;
+        clearEventTimers();
+        if (eventTransitionTimerRef.current) {
+          clearTimeout(eventTransitionTimerRef.current);
+          eventTransitionTimerRef.current = null;
         }
         stopEventAudio();
+        activeEventIdRef.current = null;
+        isDismissingEventRef.current = false;
         setCurrentEvent(null);
         setIsEventExiting(false);
+        setIsEventTransitioning(false);
       }
 
       if (currentChat === null) {
@@ -943,15 +1022,9 @@ function BundleOverlayContent() {
           )}`}
         >
           <div
+            key={currentEvent.id}
             style={scale !== 1 ? { zoom: scale } : undefined}
-            onClick={() => {
-              setIsEventExiting(true);
-              setTimeout(() => {
-                setCurrentEvent(null);
-                setIsEventExiting(false);
-                stopEventAudio();
-              }, 200);
-            }}
+            onClick={() => dismissActiveEvent(currentEvent.id)}
             className={`w-full max-w-md duration-300 flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all ${
               isEventExiting
                 ? "opacity-0 translate-y-3 scale-95 pointer-events-none"

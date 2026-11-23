@@ -49,8 +49,7 @@ function ChatOverlayContent() {
       ttsAudioRef.current.onstalled = null;
       try {
         ttsAudioRef.current.pause();
-        ttsAudioRef.current.removeAttribute("src");
-        ttsAudioRef.current.load();
+        ttsAudioRef.current.currentTime = 0;
       } catch {}
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {

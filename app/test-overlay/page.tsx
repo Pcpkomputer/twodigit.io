@@ -2682,14 +2682,13 @@ export default function TestOverlayPage() {
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("join", {
                           nickname: "Budi Santoso",
                           uniqueId: "budi_santoso",
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-blue-50 hover:border-blue-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">👋</span>
                       <span className="font-bold text-xs text-gray-900">Tes Join Stream</span>
@@ -2698,7 +2697,6 @@ export default function TestOverlayPage() {
 
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("chat", {
                           nickname: "Siti Rahma",
@@ -2706,7 +2704,7 @@ export default function TestOverlayPage() {
                           message: "Halo bang, mantap banget gameplay-nya!",
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-green-50 hover:border-green-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-green-50 hover:border-green-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">💬</span>
                       <span className="font-bold text-xs text-gray-900">Tes Baca Chat</span>
@@ -2715,7 +2713,6 @@ export default function TestOverlayPage() {
 
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("gift", {
                           nickname: "Andi Wijaya",
@@ -2724,7 +2721,7 @@ export default function TestOverlayPage() {
                           giftCount: 5,
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-yellow-50 hover:border-yellow-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-yellow-50 hover:border-yellow-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">🌹</span>
                       <span className="font-bold text-xs text-gray-900">Tes Gift Mawar x5</span>
@@ -2733,7 +2730,6 @@ export default function TestOverlayPage() {
 
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("gift", {
                           nickname: "Sultan Stream",
@@ -2742,7 +2738,7 @@ export default function TestOverlayPage() {
                           giftCount: 1,
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-amber-50 hover:border-amber-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-amber-50 hover:border-amber-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">🪐</span>
                       <span className="font-bold text-xs text-gray-900">Tes Gift Paus x1</span>
@@ -2751,14 +2747,13 @@ export default function TestOverlayPage() {
 
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("follow", {
                           nickname: "Rian Pratama",
                           uniqueId: "rian_p",
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-purple-50 hover:border-purple-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-purple-50 hover:border-purple-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">🔔</span>
                       <span className="font-bold text-xs text-gray-900">Tes Follow Baru</span>
@@ -2767,14 +2762,13 @@ export default function TestOverlayPage() {
 
                     <button
                       type="button"
-                      disabled={isSimulatingEvent}
                       onClick={() =>
                         handleTriggerEventSim("share", {
                           nickname: "Dewi Lestari",
                           uniqueId: "dewi_l",
                         })
                       }
-                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-pink-50 hover:border-pink-300 text-left transition flex flex-col gap-1 disabled:opacity-50"
+                      className="p-3 rounded-xl border border-gray-200 bg-gray-50 hover:bg-pink-50 hover:border-pink-300 active:scale-[0.98] text-left transition flex flex-col gap-1 cursor-pointer"
                     >
                       <span className="text-xl">🚀</span>
                       <span className="font-bold text-xs text-gray-900">Tes Share Live</span>

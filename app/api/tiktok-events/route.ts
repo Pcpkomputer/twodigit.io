@@ -115,6 +115,11 @@ export async function POST(request: NextRequest) {
       diamondCount,
     });
 
+    // Respect master TTS audio switch: if disabled, show visual card without speech audio
+    if (!settings.enableTts) {
+      eventPayload.speechText = "";
+    }
+
     // Broadcast to Pusher for OBS Overlay
     await broadcastTikTokEvent(eventPayload);
 

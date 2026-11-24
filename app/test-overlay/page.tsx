@@ -44,7 +44,7 @@ interface PollState {
 
 export default function TestOverlayPage() {
   // Navigation tab
-  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "sfx" | "donation" | "tiktok-events">("poll");
+  const [activeTab, setActiveTab] = useState<"chat" | "poll" | "sfx" | "donation" | "tiktok-events" | "cohost">("poll");
   const [isTriggeringSfx, setIsTriggeringSfx] = useState<string | null>(null);
 
   // Auth state
@@ -81,6 +81,7 @@ export default function TestOverlayPage() {
   const [bundleChatPos, setBundleChatPos] = useState<string>("bottom-left");
   const [bundleSfxPos, setBundleSfxPos] = useState<string>("bottom-right");
   const [bundlePollPos, setBundlePollPos] = useState<string>("top-left");
+  const [bundleCohostPos, setBundleCohostPos] = useState<string>("bottom-right");
   const [bundleScale, setBundleScale] = useState<string>("0.75");
   const [bundleModules, setBundleModules] = useState<{
     alert: boolean;
@@ -88,12 +89,14 @@ export default function TestOverlayPage() {
     chat: boolean;
     sfx: boolean;
     poll: boolean;
+    cohost: boolean;
   }>({
     alert: true,
     events: true,
     chat: true,
     sfx: true,
     poll: true,
+    cohost: true,
   });
 
   const getBundleUrl = (preview = false) => {
@@ -108,6 +111,7 @@ export default function TestOverlayPage() {
       chatPos: bundleChatPos,
       sfxPos: bundleSfxPos,
       pollPos: bundlePollPos,
+      cohostPos: bundleCohostPos,
       scale: bundleScale,
       modules: activeMods || "none",
     });
@@ -148,6 +152,13 @@ export default function TestOverlayPage() {
   const chatSenderRef = useRef<string>("Streamer");
   const chatBadgeRef = useRef<string>("🎙️ Host");
   const chatVoiceRef = useRef<string>("schoolgirl");
+
+  // State for AI Co-Host Testing (GTA 6 Guide)
+  const [cohostPrompt, setCohostPrompt] = useState<string>("Di mana lokasi Skunk Ape?");
+  const [cohostVoice, setCohostVoice] = useState<string>("schoolgirl");
+  const [isAskingCohost, setIsAskingCohost] = useState<boolean>(false);
+  const [sttTargetMode, setSttTargetMode] = useState<"cohost" | "chat">("cohost");
+  const sttTargetModeRef = useRef<"cohost" | "chat">("cohost");
 
   // Poll state
   const [poll, setPoll] = useState<PollState | null>(null);
@@ -394,10 +405,43 @@ export default function TestOverlayPage() {
     }
   };
 
-  // Keep ref sync with state for background speech recognition
   useEffect(() => {
-    wakeWordRef.current = wakeWord;
-  }, [wakeWord]);
+    sttTargetModeRef.current = sttTargetMode;
+  }, [sttTargetMode]);
+
+  // AI Co-Host API Handler
+  const askAiCohost = async (customPrompt?: string) => {
+    const promptToSend = (customPrompt ?? cohostPrompt).trim();
+    if (!promptToSend) {
+      toast.warning("Tulis pertanyaan untuk AI Co-Host terlebih dahulu.");
+      return;
+    }
+
+    setIsAskingCohost(true);
+    try {
+      const res = await fetch("/api/ai-cohost", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prompt: promptToSend,
+          voice: cohostVoice,
+          source: "streamer",
+          sender: "Streamer",
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        toast.success(`🎮 Veyra AI: "${data.cohost?.reply}"`);
+      } else {
+        toast.error(data.error || "Gagal menghubungi AI Co-Host.");
+      }
+    } catch {
+      toast.error("Terjadi kesalahan saat memanggil AI Co-Host.");
+    } finally {
+      setIsAskingCohost(false);
+    }
+  };
 
   useEffect(() => {
     chatSenderRef.current = chatSender;
@@ -465,7 +509,14 @@ export default function TestOverlayPage() {
       if (matched && cleanMessage.length > 0) {
         setSttStatus("processing");
         toast.info(`🎙️ Wake-word terdeteksi: "${cleanMessage}"`);
-        sendInteractiveChat(cleanMessage, chatSenderRef.current, chatBadgeRef.current);
+
+        // Check if user set STT target to AI Co-Host (GTA 6 Guide) or Direct Chat
+        if (sttTargetModeRef.current === "cohost") {
+          askAiCohost(cleanMessage);
+        } else {
+          sendInteractiveChat(cleanMessage, chatSenderRef.current, chatBadgeRef.current);
+        }
+
         setTimeout(() => {
           if (shouldKeepListeningRef.current) {
             setSttStatus("listening");
@@ -961,6 +1012,18 @@ export default function TestOverlayPage() {
           </button>
 
           <button
+            onClick={() => setActiveTab("cohost")}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
+              activeTab === "cohost"
+                ? "bg-pink-600 text-white shadow-sm shadow-pink-600/30"
+                : "bg-white text-gray-600 hover:bg-gray-100 border border-gray-200"
+            }`}
+          >
+            <span className="material-symbols-outlined text-[20px]">smart_toy</span>
+            <span>🎮 AI Co-Host (GTA 6 Guide)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab("donation")}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm transition shrink-0 ${
               activeTab === "donation"
@@ -1191,6 +1254,33 @@ export default function TestOverlayPage() {
                       <option value="center">Tengah Layar</option>
                     </select>
                   </div>
+
+                  {/* AI Co-Host Position */}
+                  <div className="p-3 bg-white/5 border border-white/10 rounded-xl flex flex-col gap-1.5 sm:col-span-2">
+                    <label className="text-xs font-bold text-pink-400 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span>🎮 AI Co-Host (GTA 6 Guide / Veyra AI)</span>
+                        <span className="px-1.5 py-0.2 rounded bg-pink-500 text-white text-[10px] font-black">BARU</span>
+                      </span>
+                      <input
+                        type="checkbox"
+                        checked={bundleModules.cohost}
+                        onChange={(e) => setBundleModules({ ...bundleModules, cohost: e.target.checked })}
+                        className="rounded border-gray-600 text-primary focus:ring-primary w-3.5 h-3.5"
+                      />
+                    </label>
+                    <select
+                      value={bundleCohostPos}
+                      disabled={!bundleModules.cohost}
+                      onChange={(e) => setBundleCohostPos(e.target.value)}
+                      className="w-full h-9 px-2.5 rounded-lg bg-gray-900 border border-white/15 text-xs text-white outline-none focus:border-pink-400 disabled:opacity-40"
+                    >
+                      <option value="bottom-right">Kanan Bawah (Standar Co-Host)</option>
+                      <option value="bottom-left">Kiri Bawah</option>
+                      <option value="top-right">Kanan Atas</option>
+                      <option value="top-left">Kiri Atas</option>
+                    </select>
+                  </div>
                 </div>
 
                 {/* Generated URL Bar */}
@@ -1345,6 +1435,23 @@ export default function TestOverlayPage() {
                       }`}
                     >
                       📊 Voting
+                    </span>
+                  )}
+
+                  {/* Mini Co-Host Chip */}
+                  {bundleModules.cohost && (
+                    <span
+                      className={`absolute px-2 py-0.5 bg-pink-600 text-white font-black text-[9px] rounded-md shadow-md transition-all duration-300 pointer-events-none ${
+                        bundleCohostPos === "bottom-right"
+                          ? "bottom-2 right-2"
+                          : bundleCohostPos === "bottom-left"
+                          ? "bottom-2 left-2"
+                          : bundleCohostPos === "top-right"
+                          ? "top-2 right-2"
+                          : "top-2 left-2"
+                      }`}
+                    >
+                      🎮 Co-Host
                     </span>
                   )}
                 </div>
@@ -1600,6 +1707,43 @@ export default function TestOverlayPage() {
                 </a>
                 <button
                   onClick={() => copyToClipboard("/overlay/milestone", "Milestone")}
+                  className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
+                >
+                  Salin
+                </button>
+              </div>
+            </div>
+            {/* AI Co-Host Overlay Card */}
+            <div
+              className={`p-3.5 rounded-xl border shadow-sm flex flex-col justify-between gap-2 ${
+                activeTab === "cohost" ? "bg-indigo-50/50 border-primary/50" : "bg-white border-gray-200"
+              }`}
+            >
+              <div className="flex items-start justify-between">
+                <div>
+                  <h3 className="font-bold text-xs text-gray-900 flex items-center gap-1">
+                    <span>🎮 GTA 6 Co-Host</span>
+                    <span className="text-[10px] bg-pink-600 text-white px-1.5 py-0.2 rounded font-black">
+                      AI
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-gray-500">Live AI Assistant & Guide</p>
+                </div>
+                <span className="text-[10px] bg-pink-50 text-pink-700 font-bold px-1.5 py-0.5 rounded">
+                  /overlay/cohost
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5 pt-1.5 border-t border-gray-100">
+                <a
+                  href="/overlay/cohost?preview=1"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 text-center py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-xs font-semibold text-gray-700 transition"
+                >
+                  Preview ↗
+                </a>
+                <button
+                  onClick={() => copyToClipboard("/overlay/cohost", "AI Co-Host")}
                   className="px-2 py-1 rounded-lg border border-gray-200 hover:bg-gray-50 text-xs font-semibold text-gray-600 transition"
                 >
                   Salin
@@ -2152,7 +2296,37 @@ export default function TestOverlayPage() {
                   </div>
 
                   {/* Wake-Word Config & Live Feedback */}
-                  <div className="mt-4 pt-4 border-t border-gray-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div className="mt-4 pt-4 border-t border-gray-200/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                        Target Aksi Wake-Word:
+                      </label>
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setSttTargetMode("cohost")}
+                          className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1 ${
+                            sttTargetMode === "cohost"
+                              ? "bg-pink-600 text-white border-pink-700 shadow-xs"
+                              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                          }`}
+                        >
+                          <span>🎮 GTA 6 Co-Host</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSttTargetMode("chat")}
+                          className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1 ${
+                            sttTargetMode === "chat"
+                              ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
+                              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
+                          }`}
+                        >
+                          <span>💬 Broadcast Chat</span>
+                        </button>
+                      </div>
+                    </div>
+
                     <div>
                       <label className="block text-[11px] font-bold text-gray-700 mb-1">
                         Kata Kunci Pemicu (Wake-Up Word):
@@ -3285,6 +3459,190 @@ export default function TestOverlayPage() {
                         <br />• Komentar biasa otomatis dibacakan oleh TTS ini.
                         <br />• Sapaan join dibatasi interval 6 detik agar tidak menumpuk saat penonton ramai.
                       </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6: AI CO-HOST (GTA 6 LIVE GAME GUIDE) */}
+        {activeTab === "cohost" && (
+          <div className="flex flex-col gap-6">
+            {/* Quick Prompts Generator */}
+            <section>
+              <h2 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-2.5 flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">psychology</span>
+                Contoh Pertanyaan Cepat untuk AI Co-Host (GTA 6 Lore &amp; Guides)
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                {[
+                  {
+                    icon: "🐒",
+                    label: "Misteri Skunk Ape",
+                    prompt: "Di mana lokasi Skunk Ape dan cara ketemunya?",
+                  },
+                  {
+                    icon: "⚠️",
+                    label: "Peringatan Missable",
+                    prompt: "Apa saja misi atau item yang missable di Bab 1 dan Bab 2?",
+                  },
+                  {
+                    icon: "🛸",
+                    label: "Misteri UFO Alien",
+                    prompt: "Di mana lokasi penampakan UFO dan kapan bisa ditrigger?",
+                  },
+                  {
+                    icon: "🚗",
+                    label: "Alat Key Cloner Mobil",
+                    prompt: "Kapan alat Key Cloner untuk curi mobil keyless terbuka?",
+                  },
+                  {
+                    icon: "🥚",
+                    label: "Telur Paskah Sungguhan",
+                    prompt: "Di mana rahasia Literal Easter Egg telur raksasa?",
+                  },
+                  {
+                    icon: "🐕",
+                    label: "Cool Dog Naik Jet Ski",
+                    prompt: "Di mana lokasi rahasia anjing naik jet ski di Keys?",
+                  },
+                ].map((item, idx) => (
+                  <button
+                    key={idx}
+                    disabled={isAskingCohost}
+                    onClick={() => askAiCohost(item.prompt)}
+                    className="p-3 bg-white hover:bg-pink-50/60 rounded-xl border border-gray-200 hover:border-pink-400 text-left transition shadow-sm group disabled:opacity-50 flex items-start gap-2.5 cursor-pointer"
+                  >
+                    <span className="text-xl shrink-0 mt-0.5">{item.icon}</span>
+                    <div className="min-w-0">
+                      <p className="font-bold text-xs text-gray-900 group-hover:text-pink-700 transition">
+                        {item.label}
+                      </p>
+                      <p className="text-[11px] text-gray-500 line-clamp-1 italic">
+                        &ldquo;{item.prompt}&rdquo;
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            {/* Prompt Box & Controls */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column: Ask Form */}
+              <div className="lg:col-span-7">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col gap-4">
+                  <div className="flex items-center justify-between border-b border-gray-100 pb-3">
+                    <div>
+                      <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                        <span className="material-symbols-outlined text-pink-600 text-[22px]">
+                          smart_toy
+                        </span>
+                        Tanya Veyra AI (GTA 6 Co-Host)
+                      </h2>
+                      <p className="text-xs text-gray-500">
+                        Didukung Google Gemini Flash dengan suntikan database GTA 6 lengkap (Leonida, Lucia, Jason, senjata, mobil, collectibles).
+                      </p>
+                    </div>
+                  </div>
+
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      askAiCohost();
+                    }}
+                    className="flex flex-col gap-4"
+                  >
+                    {/* Character Voice */}
+                    <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2.5 p-3 rounded-xl bg-pink-50/70 border border-pink-200/80 text-xs">
+                      <div>
+                        <label className="font-bold text-pink-950 flex items-center gap-1.5">
+                          <span className="material-symbols-outlined text-[18px] text-pink-600">
+                            record_voice_over
+                          </span>
+                          <span>Suara Co-Host (TTS):</span>
+                        </label>
+                        <p className="text-[11px] text-pink-700/80 mt-0.5">
+                          Karakter suara anime/remaja untuk membacakan jawaban di stream
+                        </p>
+                      </div>
+                      <select
+                        value={cohostVoice}
+                        onChange={(e) => setCohostVoice(e.target.value)}
+                        className="bg-white border border-pink-300 rounded-lg px-2.5 py-1.5 text-xs font-bold text-gray-800 outline-none focus:border-pink-500 shadow-sm cursor-pointer"
+                      >
+                        <option value="schoolgirl">👧 Siswi SMP / Remaja (+20% Pitch) ⭐</option>
+                        <option value="anime">🌸 Cewek Anime / Imut (+30% Pitch)</option>
+                        <option value="gadis">👩 Gadis Dewasa Natural</option>
+                        <option value="ardi">👨 Cowok Ardi Natural</option>
+                      </select>
+                    </div>
+
+                    {/* Question Input */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">
+                        Pertanyaan / Topik GTA 6:
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={cohostPrompt}
+                        onChange={(e) => setCohostPrompt(e.target.value)}
+                        placeholder="Contoh: Di mana mobil rahasia Wyman bisa ditemukan?"
+                        className="w-full p-3.5 rounded-xl border border-gray-300 focus:border-pink-500 focus:ring-2 focus:ring-pink-500/20 outline-none transition text-sm leading-relaxed"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={isAskingCohost}
+                      className="w-full h-12 bg-pink-600 hover:bg-pink-700 active:scale-[0.99] text-white rounded-xl font-bold transition-all disabled:opacity-60 flex items-center justify-center gap-2 shadow-md hover:shadow-lg shadow-pink-600/20 cursor-pointer"
+                    >
+                      {isAskingCohost ? (
+                        <>
+                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                          <span>Memanggil Gemini AI &amp; GTA 6 Lore...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[20px]">send</span>
+                          <span>Tanya AI Co-Host &amp; Bicara di Stream</span>
+                        </>
+                      )}
+                    </button>
+                  </form>
+                </div>
+              </div>
+
+              {/* Right Column: Co-Host Guide & Quick Preview */}
+              <div className="lg:col-span-5 flex flex-col gap-6">
+                <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6 flex flex-col gap-3">
+                  <h3 className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[20px] text-pink-600">tips_and_updates</span>
+                    Cara Kerja &amp; Fitur Pintar
+                  </h3>
+
+                  <div className="text-xs text-gray-600 space-y-2.5 leading-relaxed">
+                    <div className="p-3 rounded-xl bg-pink-50/50 border border-pink-100">
+                      <strong className="text-pink-900 font-bold block mb-0.5">🎙️ Mode Hands-Free Mic (Wake-Word):</strong>
+                      Aktifkan mic di tab <em>Interactive Chat</em>, lalu cukup katakan:
+                      <br />
+                      <code className="text-pink-700 font-bold bg-white px-1.5 py-0.5 rounded border border-pink-200 mt-1 inline-block">
+                        &ldquo;jawab di mana lokasi flamingo rahasia?&rdquo;
+                      </code>
+                      <br />
+                      Sistem langsung memanggil Gemini dan memunculkan avatar Co-Host dengan balon awan!
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                      <strong className="text-gray-900 font-bold block mb-0.5">🛡️ Jaminan Bebas Tabrakan Suara:</strong>
+                      Jika ada donasi masuk atau sapaan penonton yang sedang berbicara, Co-Host akan otomatis mengantre dan baru bersuara ketika panggung overlay hening.
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">
+                      <strong className="text-gray-900 font-bold block mb-0.5">⚡ Ringkas &amp; Cepat:</strong>
+                      Jawaban AI diatur ketat <strong>maksimal 1–2 kalimat</strong> agar tidak menutupi suara gameplay GTA 6 Anda!
                     </div>
                   </div>
                 </div>

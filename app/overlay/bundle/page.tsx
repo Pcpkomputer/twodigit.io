@@ -6,6 +6,7 @@ import Pusher from "pusher-js";
 
 import { numberToIndonesianWords } from "@/lib/terbilang";
 import { TikTokEventPayload } from "@/lib/tiktok-events";
+import AiCohostWidget, { CohostEventPayload } from "../components/AiCohostWidget";
 
 // Interfaces
 interface DonationAlert {
@@ -115,9 +116,10 @@ function BundleOverlayContent() {
   const chatPos = searchParams.get("chatPos") || "bottom-left";
   const sfxPos = searchParams.get("sfxPos") || "bottom-right"; // bottom-right | bottom-left | top-right | top-left | center
   const pollPos = searchParams.get("pollPos") || "top-left"; // top-left | top-right | bottom-left | bottom-right
+  const cohostPos = searchParams.get("cohostPos") || "bottom-right"; // bottom-right | bottom-left | top-right | top-left
 
   // Modules enable/disable filter (default: all enabled)
-  const modulesParam = searchParams.get("modules") || "alert,events,chat,sfx,poll";
+  const modulesParam = searchParams.get("modules") || "alert,events,chat,sfx,poll,cohost";
   const enabledModules = new Set(modulesParam.split(",").map((m) => m.trim().toLowerCase()));
 
   const isPreview = searchParams.get("preview") === "1";
@@ -147,6 +149,12 @@ function BundleOverlayContent() {
   // State: Live Poll
   const [poll, setPoll] = useState<PollState | null>(null);
 
+  // State: AI Co-Host (GTA 6 Live Guide)
+  const [currentCohost, setCurrentCohost] = useState<CohostEventPayload | null>(null);
+  const [cohostQueue, setCohostQueue] = useState<CohostEventPayload[]>([]);
+  const [isCohostSpeaking, setIsCohostSpeaking] = useState<boolean>(false);
+  const [isCohostCardVisible, setIsCohostCardVisible] = useState<boolean>(false);
+
   // Audio & Hardware Lock State
   const [audioUnlocked, setAudioUnlocked] = useState<boolean>(true);
 
@@ -155,6 +163,7 @@ function BundleOverlayContent() {
   const eventAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+  const cohostAudioRef = useRef<HTMLAudioElement | null>(null);
   const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Synchronized countdown bar duration for host chat
@@ -349,6 +358,10 @@ function BundleOverlayContent() {
       const sfxAudio = new Audio();
       sfxAudio.crossOrigin = "anonymous";
       sfxAudioRef.current = sfxAudio;
+
+      const cohostAudio = new Audio();
+      cohostAudio.crossOrigin = "anonymous";
+      cohostAudioRef.current = cohostAudio;
     }
 
     const unlock = () => {
@@ -375,6 +388,10 @@ function BundleOverlayContent() {
       stopEventAudio();
       stopChatAudio();
       stopSfxAudio();
+      if (cohostAudioRef.current) {
+        cohostAudioRef.current.pause();
+        cohostAudioRef.current = null;
+      }
       if (preloadAudioRef.current) {
         preloadAudioRef.current.src = "";
         preloadAudioRef.current = null;
@@ -603,6 +620,14 @@ function BundleOverlayContent() {
 
       channel.bind("poll-reset", () => {
         setPoll(null);
+      });
+    }
+
+    // 6. AI Co-Host Event (GTA 6 Guide / Veyra AI)
+    if (enabledModules.has("cohost")) {
+      channel.bind("ai-cohost-event", (data: CohostEventPayload) => {
+        if (!data || !data.id) return;
+        setCohostQueue((prev) => [...prev, data].slice(-10));
       });
     }
 
@@ -976,6 +1001,108 @@ function BundleOverlayContent() {
       stopChatAudio();
     };
   }, [currentChat]);
+
+  // AI Co-Host Queue Processor & Collision Guard:
+  // ONLY pops Co-Host when stage is 100% idle (No Donasi Alert, No TikTok Event, No Host Chat)
+  useEffect(() => {
+    const isStageBusy =
+      currentAlert !== null ||
+      currentEvent !== null ||
+      currentChat !== null ||
+      isEventSpeaking ||
+      isChatSpeaking ||
+      alertQueue.length > 0 ||
+      eventQueue.length > 0 ||
+      chatQueue.length > 0;
+
+    if (!isStageBusy && currentCohost === null && cohostQueue.length > 0) {
+      const [nextCohost, ...remaining] = cohostQueue;
+      setCurrentCohost(nextCohost);
+      setIsCohostCardVisible(false);
+      setCohostQueue(remaining);
+    }
+  }, [
+    currentAlert,
+    currentEvent,
+    currentChat,
+    isEventSpeaking,
+    isChatSpeaking,
+    alertQueue,
+    eventQueue,
+    chatQueue,
+    currentCohost,
+    cohostQueue,
+  ]);
+
+  // AI Co-Host TTS Playback & Comic Speech Bubble Life-cycle
+  useEffect(() => {
+    if (!currentCohost) return;
+
+    const eventId = currentCohost.id;
+    const speechText = currentCohost.speechText || currentCohost.reply || "";
+    const voice = currentCohost.voice || "schoolgirl";
+
+    let cohostDismissTimeout: NodeJS.Timeout | null = null;
+
+    const dismissCohost = () => {
+      setIsCohostSpeaking(false);
+      setIsCohostCardVisible(false);
+      setTimeout(() => {
+        setCurrentCohost((curr) => (curr && curr.id === eventId ? null : curr));
+      }, 350);
+    };
+
+    if (speechText) {
+      try {
+        const audio = cohostAudioRef.current;
+        if (audio) {
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&voice=${encodeURIComponent(voice)}`;
+          audio.volume = 1.0;
+
+          audio.onloadedmetadata = () => {
+            setIsCohostCardVisible(true);
+            setIsCohostSpeaking(true);
+            audio.play().catch(() => {});
+          };
+
+          audio.onended = () => {
+            setIsCohostSpeaking(false);
+            // Keep speech bubble visible for 1.8 seconds after speaking so viewers can read
+            cohostDismissTimeout = setTimeout(dismissCohost, 1800);
+          };
+
+          audio.onerror = () => {
+            setIsCohostSpeaking(false);
+            setIsCohostCardVisible(true);
+            cohostDismissTimeout = setTimeout(dismissCohost, 4000);
+          };
+
+          audio.play().catch(() => {
+            setIsCohostCardVisible(true);
+            cohostDismissTimeout = setTimeout(dismissCohost, 4000);
+          });
+        }
+      } catch {
+        setIsCohostCardVisible(true);
+        cohostDismissTimeout = setTimeout(dismissCohost, 4000);
+      }
+    } else {
+      setIsCohostCardVisible(true);
+      cohostDismissTimeout = setTimeout(dismissCohost, 4000);
+    }
+
+    return () => {
+      if (cohostDismissTimeout) clearTimeout(cohostDismissTimeout);
+      if (cohostAudioRef.current) {
+        cohostAudioRef.current.onended = null;
+        cohostAudioRef.current.onerror = null;
+        cohostAudioRef.current.onloadedmetadata = null;
+        try {
+          cohostAudioRef.current.pause();
+        } catch {}
+      }
+    };
+  }, [currentCohost]);
 
   // Dynamic Position Class Builders (Exact matching individual overlay padding)
   const getContainerClasses = (pos: string) => {
@@ -1448,6 +1575,22 @@ function BundleOverlayContent() {
             </div>
           </div>
         )}
+
+      {/* 6. AI CO-HOST (GTA 6 LIVE GAME GUIDE & AVATAR) */}
+      {enabledModules.has("cohost") && (
+        <AiCohostWidget
+          currentEvent={currentCohost}
+          isSpeaking={isCohostSpeaking}
+          isCardVisible={isCohostCardVisible}
+          position={cohostPos}
+          scale={scale}
+          onDismiss={() => {
+            setIsCohostSpeaking(false);
+            setIsCohostCardVisible(false);
+            setCurrentCohost(null);
+          }}
+        />
+      )}
 
       {/* Inline animation keyframes for progress bar shrink */}
       <style jsx>{`

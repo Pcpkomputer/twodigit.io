@@ -78,8 +78,8 @@ async function fetchEdgeTTS(
 
   return new Promise<Buffer>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error("Edge TTS timed out after 5000ms"));
-    }, 5000);
+      reject(new Error("Edge TTS timed out after 15000ms"));
+    }, 15000);
 
     const chunks: Buffer[] = [];
     streamResult.audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -105,7 +105,7 @@ export async function GET(req: NextRequest) {
     return new NextResponse("Text parameter is required", { status: 400 });
   }
 
-  const cleanText = text.trim().slice(0, 400);
+  const cleanText = text.trim().slice(0, 1000);
   const cacheKey = `${voice || "google"}:${cleanText}:${customPitch || ""}:${customRate || ""}`;
 
   // 1. FAST PATH: In-memory cache hit (< 1ms instant response)

@@ -433,6 +433,8 @@ export default function TestOverlayPage() {
       const data = await res.json();
       if (res.ok && data.success) {
         toast.success(`🎮 Budak Mimin: "${data.cohost?.reply}"`);
+      } else if (res.status === 429) {
+        toast.warning(data.error || "AI Co-Host sedang cooldown.");
       } else {
         toast.error(data.error || "Gagal menghubungi AI Co-Host.");
       }

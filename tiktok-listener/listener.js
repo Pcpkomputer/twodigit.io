@@ -44,6 +44,8 @@ console.log("===================================================================
 // In-Memory Cooldown Tracker
 let lastGlobalSfxTime = 0;
 const userSfxCooldownMap = new Map();
+let lastAiQueryTime = 0;
+const AI_COOLDOWN_MS = 20 * 1000; // 20s cooldown between AI queries to protect Gemini free tier
 
 // Deduplication for recent message IDs to prevent double/triple processing
 const processedMsgIds = new Set();
@@ -313,6 +315,14 @@ tiktokLiveConnection.on("chat", async (data) => {
   if (tanyaAiMatch) {
     const question = (tanyaAiMatch[1] || "").trim();
     if (question.length > 0) {
+      const elapsedAi = now - lastAiQueryTime;
+      if (elapsedAi < AI_COOLDOWN_MS) {
+        const remaining = Math.ceil((AI_COOLDOWN_MS - elapsedAi) / 1000);
+        console.log(`⏳ [AI COOLDOWN] @${userId} (${nickname}) mencoba tanya, tapi AI masih cooldown (${remaining}s tersisa).`);
+        return;
+      }
+
+      lastAiQueryTime = now;
       console.log(`🎮 [AI CO-HOST TANYA] @${userId} (${nickname}): "${question}"`);
       welcomedUserTimestamps.set(userId, now);
       lastChatEventTime = now;
@@ -339,7 +349,11 @@ tiktokLiveConnection.on("chat", async (data) => {
           console.log(`✨ [AI CO-HOST JAWAB] Budak Mimin: "${response.data.cohost?.reply}"`);
         }
       } catch (error) {
-        console.error("❌ [AI CO-HOST ERROR] Gagal memanggil endpoint AI Co-Host:", error.response?.data || error.message);
+        if (error.response?.status === 429) {
+          console.log(`⏳ [AI COOLDOWN] ${error.response.data?.error || "AI sedang cooldown"}`);
+        } else {
+          console.error("❌ [AI CO-HOST ERROR] Gagal memanggil endpoint AI Co-Host:", error.response?.data || error.message);
+        }
       }
       return;
     }

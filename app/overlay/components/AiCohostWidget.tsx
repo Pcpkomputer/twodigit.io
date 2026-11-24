@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useState, useEffect, useRef } from "react";
 
 export interface CohostEventPayload {
   id: string;
@@ -12,6 +12,7 @@ export interface CohostEventPayload {
   source?: string;
   sender?: string;
   timestamp: string;
+  cooldownSeconds?: number;
 }
 
 interface AiCohostWidgetProps {
@@ -24,6 +25,7 @@ interface AiCohostWidgetProps {
   isSfxActive?: boolean; // When SFX is active in the same corner, stack Co-Host upwards!
   sfxPosition?: string;
   extraBottomOffset?: number; // Custom bottom pixel offset (e.g. 56px to clear running text overlay)
+  cooldownSeconds?: number;
 }
 
 export default function AiCohostWidget({
@@ -36,7 +38,40 @@ export default function AiCohostWidget({
   isSfxActive = false,
   sfxPosition = "bottom-left",
   extraBottomOffset = 75, // Default 56px margin bottom to safely clear TikTok Studio running text ticker
+  cooldownSeconds = 20,
 }: AiCohostWidgetProps) {
+  // Cooldown State Management
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
+  const [totalCooldown, setTotalCooldown] = useState<number>(cooldownSeconds);
+  const cooldownEndTimeRef = useRef<number>(0);
+  const lastTriggeredIdRef = useRef<string | null>(null);
+
+  // Trigger cooldown timer whenever a new AI Co-Host event arrives
+  useEffect(() => {
+    if (currentEvent && currentEvent.id && currentEvent.id !== lastTriggeredIdRef.current) {
+      lastTriggeredIdRef.current = currentEvent.id;
+      const duration = currentEvent.cooldownSeconds || cooldownSeconds || 20;
+      setTotalCooldown(duration);
+      cooldownEndTimeRef.current = Date.now() + duration * 1000;
+      setCooldownRemaining(duration);
+    }
+  }, [currentEvent, cooldownSeconds]);
+
+  // Accurate interval tick that respects system clock
+  useEffect(() => {
+    if (cooldownRemaining <= 0) return;
+
+    const interval = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((cooldownEndTimeRef.current - Date.now()) / 1000));
+      setCooldownRemaining(remaining);
+      if (remaining <= 0) {
+        clearInterval(interval);
+      }
+    }, 500);
+
+    return () => clearInterval(interval);
+  }, [cooldownRemaining]);
+
   // Check if SFX is currently occupying the same corner
   const isSharingCornerWithSfx = isSfxActive && position === sfxPosition;
 
@@ -171,11 +206,13 @@ export default function AiCohostWidget({
             }`}
         ></div>
 
-        {/* Character Frame: Pixel Art Avatar with Audio Equalizer Bounce */}
+        {/* Character Frame: Pixel Art Avatar with Audio Equalizer Bounce & Cooldown Border */}
         <div
           className={`relative w-20 h-20 md:w-24 md:h-24 rounded-2xl border-3 overflow-hidden bg-gray-900 shadow-2xl transition-all duration-300 flex items-center justify-center ${isSpeaking
             ? "border-pink-400 scale-105 rotate-1 animate-[bounce_1.2s_infinite]"
-            : "border-purple-400/80 hover:border-pink-400 scale-100"
+            : cooldownRemaining > 0
+              ? "border-amber-400/90 shadow-amber-500/30 scale-100"
+              : "border-purple-400/80 hover:border-pink-400 scale-100"
             }`}
         >
           {/* Mimin's Uploaded Pixel Art Image */}
@@ -197,15 +234,38 @@ export default function AiCohostWidget({
             </div>
           )}
 
-          {/* Online Co-Host Badge Dot */}
-          <span className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-md animate-pulse"></span>
+          {/* Online Co-Host Badge Dot (Amber during cooldown, Emerald when ready) */}
+          {cooldownRemaining > 0 ? (
+            <span
+              title={`Cooldown: ${cooldownRemaining}s`}
+              className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-amber-400 border-2 border-black rounded-full shadow-md animate-pulse"
+            ></span>
+          ) : (
+            <span
+              title="Siap ditanya (!tanyaai)"
+              className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-md animate-pulse"
+            ></span>
+          )}
         </div>
 
         {/* Name Tag Pill */}
-        <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-pink-500/80 shadow-lg text-[10px] font-black text-yellow-300 tracking-wider uppercase shrink-0 whitespace-nowrap flex items-center gap-1">
+        <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-pink-500/80 shadow-lg text-[10px] font-black text-yellow-300 tracking-wider uppercase shrink-0 whitespace-nowrap flex items-center gap-1 z-10">
           <span>🎮</span>
           <span>Budak Mimin</span>
         </div>
+
+        {/* Dynamic Cooldown & Availability Status Badge */}
+        {cooldownRemaining > 0 ? (
+          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/95 border border-amber-400/90 shadow-lg text-[9.5px] font-black text-amber-300 tracking-wider uppercase shrink-0 whitespace-nowrap flex items-center gap-1.5 shadow-amber-500/25">
+            <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+            <span>⏳ Cooldown {cooldownRemaining}s</span>
+          </div>
+        ) : (
+          <div className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-emerald-400/80 shadow-lg text-[9.5px] font-black text-emerald-300 tracking-wider shrink-0 whitespace-nowrap flex items-center gap-1.5 shadow-emerald-500/20">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>✨ !tanyaai Siap</span>
+          </div>
+        )}
       </div>
     </div>
   );

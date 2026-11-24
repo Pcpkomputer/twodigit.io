@@ -3,6 +3,12 @@ import crypto from "crypto";
 import { pusherServer } from "@/lib/pusher";
 import { queryGeminiGta6Cohost } from "@/lib/gemini-cohost";
 
+// Gemini Free Tier Rate Limiter
+// Gemini Free Tier limit: 15 RPM. A 20s cooldown keeps live chat requests to <= 3 RPM,
+// perfectly avoiding 429 quota exhaustion during live streams.
+let lastQueryTimestamp = 0;
+const COOLDOWN_SECONDS = 20;
+
 const isAuthorized = (request: NextRequest) => {
   const sessionCookie = request.cookies.get("test_overlay_session")?.value;
   const configuredPassword = process.env.TEST_OVERLAY_PASSWORD || "p3rw1rapc";
@@ -47,6 +53,27 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Rate Limit Check to protect Gemini Free Tier quota
+    const now = Date.now();
+    const elapsedSeconds = (now - lastQueryTimestamp) / 1000;
+    // Allow 4s buffer for streamer testing, enforce 20s cooldown for live chat
+    const requiredCooldown = source === "streamer" ? 4 : COOLDOWN_SECONDS;
+
+    if (elapsedSeconds < requiredCooldown) {
+      const remainingSeconds = Math.ceil(requiredCooldown - elapsedSeconds);
+      return NextResponse.json(
+        {
+          error: `AI sedang cooldown. Silakan tunggu ${remainingSeconds} detik lagi.`,
+          remainingSeconds,
+          cooldownSeconds: COOLDOWN_SECONDS,
+        },
+        { status: 429 }
+      );
+    }
+
+    // Update timestamp before query to prevent concurrent bursts
+    lastQueryTimestamp = now;
+
     // Query Google Gemini Flash with injected GTA 6 knowledge
     const cohostReply = await queryGeminiGta6Cohost(cleanPrompt, sessionContext);
 
@@ -59,6 +86,7 @@ export async function POST(request: NextRequest) {
       voice: voice || "schoolgirl",
       source,
       sender: sender || "Budak Mimin",
+      cooldownSeconds: COOLDOWN_SECONDS,
       timestamp: new Date().toISOString(),
     };
 
@@ -70,6 +98,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       success: true,
       cohost: eventPayload,
+      cooldownSeconds: COOLDOWN_SECONDS,
     });
   } catch (error: any) {
     console.error("AI Co-Host endpoint error:", error);

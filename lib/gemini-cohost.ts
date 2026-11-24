@@ -68,17 +68,64 @@ export interface CohostResponse {
 }
 
 /**
- * Ask Gemini Flash for a quick, 1-2 sentence gamer-style response
+ * Format and sanitize raw text from LLM (Groq / Gemini)
+ */
+function formatCohostReply(rawText: string): CohostResponse {
+  let clean = rawText
+    .replace(/^["']|["']$/g, "")
+    .replace(/\*\*/g, "")
+    .trim();
+
+  // Strip any leading/trailing "min" or "mimin"
+  clean = clean
+    .replace(/^(?:nih|halo|oi|hey)?\s*(?:min|mimin)[,\s:]+/i, "")
+    .replace(/,\s*(?:ya\s+|nih\s+|dong\s+)?(?:min|mimin)\b/gi, "")
+    .replace(/\s+(?:ya\s+|nih\s+|dong\s+)?(?:min|mimin)(?=[\s.!?]*$)/gi, "")
+    .replace(/\s+([.,!?])/g, "$1")
+    .trim();
+
+  // Clean any dangling dash, truncated partial words, or trailing comma
+  clean = clean
+    .replace(/-\s*$/, "")
+    .replace(/\s+[a-zA-Z0-9]+-$/g, "")
+    .replace(/,\s*$/, "")
+    .trim();
+
+  if (clean.length > 0) {
+    clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+    // Ensure it ends with punctuation so TTS doesn't stumble
+    if (!/[.!?]$/.test(clean)) {
+      clean += ".";
+    }
+  }
+
+  // Detect mood from content
+  let mood: "talk" | "smug" | "warning" | "excited" = "talk";
+  const lower = clean.toLowerCase();
+  if (lower.includes("awas") || lower.includes("ingat") || lower.includes("missable") || lower.includes("jangan")) {
+    mood = "warning";
+  } else if (lower.includes("gokil") || lower.includes("mantap") || lower.includes("keren") || lower.includes("wkwk")) {
+    mood = "excited";
+  } else if (lower.includes("santai") || lower.includes("gampang") || lower.includes("biasa")) {
+    mood = "smug";
+  }
+
+  return {
+    reply: clean,
+    speechText: clean,
+    mood,
+  };
+}
+
+/**
+ * Ask AI Co-Host for a fast, punchy GTA 6 response.
+ * Primary: Groq Cloud (Ultra-Fast LPU ~300-600ms latency)
+ * Fallback: Google Gemini AI Studio
  */
 export async function queryGeminiGta6Cohost(
   prompt: string,
   sessionContext?: string
 ): Promise<CohostResponse> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    throw new Error("GEMINI_API_KEY is not configured in .env.local");
-  }
-
   const userQuery = prompt.trim();
   const contextBlock = sessionContext
     ? `\n[HISTORI SESI LIVE STREAMING]:\n${sessionContext}\n`
@@ -86,101 +133,105 @@ export async function queryGeminiGta6Cohost(
 
   const systemInstruction = `${GTA6_COHOST_SYSTEM_PROMPT}\n${contextBlock}\nINGAT ATURAN KETAT: Jawab RINGKAS dan PADAT (sekitar 2-3 kalimat santai, maksimal 40 kata, JANGAN buat cerita panjang!). Langsung to the point, dan JANGAN PERNAH menyertakan kata 'min' atau 'mimin' sama sekali di jawabanmu!`;
 
-  // Use current active Gemini models on Google AI Studio
-  const modelsToTry = [
-    "gemini-3.5-flash-lite",
-    "gemini-3.5-flash",
-    "gemini-3.8-flash",
-    "gemini-flash-latest",
-  ];
-  let lastError: any = null;
+  // =========================================================================
+  // 1. PRIMARY: GROQ CLOUD ULTRA-FAST LPU INFERENCE (< 500ms)
+  // =========================================================================
+  const groqApiKey = process.env.GROQ_API_KEY;
+  if (groqApiKey) {
+    const groqModels = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
 
-  for (const model of modelsToTry) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: userQuery }],
-            },
-          ],
-          systemInstruction: {
-            parts: [{ text: systemInstruction }],
+    for (const model of groqModels) {
+      try {
+        const start = Date.now();
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${groqApiKey}`,
+            "Content-Type": "application/json",
           },
-          generationConfig: {
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: systemInstruction },
+              { role: "user", content: userQuery },
+            ],
             temperature: 0.7,
-            maxOutputTokens: 600, // Comfortable headroom for concise natural answers without cutting off
-            topP: 0.8,
-          },
-        }),
-      });
+            max_tokens: 300,
+          }),
+          signal: AbortSignal.timeout(4000), // Max 4s per Groq model
+        });
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.warn(`Gemini model ${model} failed (${response.status}):`, errorText);
-        lastError = new Error(`Gemini ${model} HTTP ${response.status}: ${errorText}`);
-        continue;
-      }
-
-      const data = await response.json();
-      const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-
-      if (rawText) {
-        // Clean markdown quotes or bold tags if any
-        let clean = rawText
-          .replace(/^["']|["']$/g, "")
-          .replace(/\*\*/g, "")
-          .trim();
-
-        // Strip any leading/trailing "min" or "mimin"
-        clean = clean
-          .replace(/^(?:nih|halo|oi|hey)?\s*(?:min|mimin)[,\s:]+/i, "")
-          .replace(/,\s*(?:ya\s+|nih\s+|dong\s+)?(?:min|mimin)\b/gi, "")
-          .replace(/\s+(?:ya\s+|nih\s+|dong\s+)?(?:min|mimin)(?=[\s.!?]*$)/gi, "")
-          .replace(/\s+([.,!?])/g, "$1")
-          .trim();
-
-        // Clean any dangling dash, truncated partial words, or trailing comma
-        clean = clean
-          .replace(/-\s*$/, "")
-          .replace(/\s+[a-zA-Z0-9]+-$/g, "")
-          .replace(/,\s*$/, "")
-          .trim();
-
-        if (clean.length > 0) {
-          clean = clean.charAt(0).toUpperCase() + clean.slice(1);
-          // Ensure it ends with punctuation so TTS doesn't stumble
-          if (!/[.!?]$/.test(clean)) {
-            clean += ".";
+        if (res.ok) {
+          const data = await res.json();
+          const raw = data.choices?.[0]?.message?.content?.trim();
+          if (raw) {
+            console.log(`⚡ [GROQ] Model ${model} responded in ${Date.now() - start}ms`);
+            return formatCohostReply(raw);
           }
+        } else {
+          console.warn(`Groq model ${model} failed (${res.status}):`, await res.text());
         }
-
-        // Detect mood from content
-        let mood: "talk" | "smug" | "warning" | "excited" = "talk";
-        const lower = clean.toLowerCase();
-        if (lower.includes("awas") || lower.includes("ingat") || lower.includes("missable") || lower.includes("jangan")) {
-          mood = "warning";
-        } else if (lower.includes("gokil") || lower.includes("mantap") || lower.includes("keren") || lower.includes("wkwk")) {
-          mood = "excited";
-        } else if (lower.includes("santai") || lower.includes("gampang") || lower.includes("biasa")) {
-          mood = "smug";
-        }
-
-        return {
-          reply: clean,
-          speechText: clean,
-          mood,
-        };
+      } catch (err: any) {
+        console.warn(`Error querying Groq model ${model}:`, err.message);
       }
-    } catch (err) {
-      console.warn(`Error querying Gemini model ${model}:`, err);
-      lastError = err;
     }
   }
 
-  throw lastError || new Error("Failed to get response from Gemini API");
+  // =========================================================================
+  // 2. FALLBACK: GOOGLE GEMINI AI STUDIO
+  // =========================================================================
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey && !groqApiKey) {
+    throw new Error("Neither GROQ_API_KEY nor GEMINI_API_KEY is configured in .env.local");
+  }
+
+  if (geminiApiKey) {
+    const modelsToTry = [
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-3.8-flash",
+      "gemini-flash-latest",
+    ];
+    let lastError: any = null;
+
+    for (const model of modelsToTry) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ role: "user", parts: [{ text: userQuery }] }],
+            systemInstruction: { parts: [{ text: systemInstruction }] },
+            generationConfig: {
+              temperature: 0.7,
+              maxOutputTokens: 500,
+              topP: 0.8,
+            },
+          }),
+          signal: AbortSignal.timeout(6000),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.warn(`Gemini model ${model} failed (${response.status}):`, errorText);
+          lastError = new Error(`Gemini ${model} HTTP ${response.status}: ${errorText}`);
+          continue;
+        }
+
+        const data = await response.json();
+        const rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
+
+        if (rawText) {
+          return formatCohostReply(rawText);
+        }
+      } catch (err: any) {
+        console.warn(`Error querying Gemini model ${model}:`, err.message);
+        lastError = err;
+      }
+    }
+    if (lastError) throw lastError;
+  }
+
+  throw new Error("Failed to get response from both Groq and Gemini APIs");
 }

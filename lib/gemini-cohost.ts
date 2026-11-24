@@ -84,8 +84,13 @@ export async function queryGeminiGta6Cohost(
 
   const systemInstruction = `${GTA6_COHOST_SYSTEM_PROMPT}\n${contextBlock}\nINGAT ATURAN: Jawab dalam 1 ATAU MAKSIMAL 2 KALIMAT saja! Langsung to the point, santai, dan gaya teman mabar GTA 6!`;
 
-  // Use Gemini v1beta REST API with gemini-2.5-flash (or fall back to gemini-1.5-flash)
-  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"];
+  // Use current active Gemini models on Google AI Studio
+  const modelsToTry = [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.8-flash",
+    "gemini-flash-latest",
+  ];
   let lastError: any = null;
 
   for (const model of modelsToTry) {

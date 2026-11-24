@@ -23,6 +23,7 @@ function TikTokEventsOverlayContent() {
 
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
   const currentEventIdRef = useRef<string | null>(null);
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -154,6 +155,10 @@ function TikTokEventsOverlayContent() {
       }
       stopAudio();
       audioRef.current = null;
+      if (preloadAudioRef.current) {
+        preloadAudioRef.current.src = "";
+        preloadAudioRef.current = null;
+      }
     };
   }, []);
 
@@ -238,12 +243,16 @@ function TikTokEventsOverlayContent() {
     };
   }, []);
 
-  // Preload audio for next in queue so playback starts instantly when popped
+  // Preload audio for next in queue so playback starts instantly when popped (Single reusable instance)
   useEffect(() => {
     if (queue.length > 0 && queue[0].speechText) {
-      const preloadAudio = new Audio();
-      preloadAudio.preload = "auto";
-      preloadAudio.src = `/api/tts?text=${encodeURIComponent(queue[0].speechText)}`;
+      if (!preloadAudioRef.current && typeof window !== "undefined") {
+        preloadAudioRef.current = new Audio();
+        preloadAudioRef.current.preload = "auto";
+      }
+      if (preloadAudioRef.current) {
+        preloadAudioRef.current.src = `/api/tts?text=${encodeURIComponent(queue[0].speechText)}`;
+      }
     }
   }, [queue]);
 

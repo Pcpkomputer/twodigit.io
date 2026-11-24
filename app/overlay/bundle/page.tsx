@@ -155,6 +155,7 @@ function BundleOverlayContent() {
   const eventAudioRef = useRef<HTMLAudioElement | null>(null);
   const chatAudioRef = useRef<HTMLAudioElement | null>(null);
   const sfxAudioRef = useRef<HTMLAudioElement | null>(null);
+  const preloadAudioRef = useRef<HTMLAudioElement | null>(null);
 
   // Synchronized countdown bar duration for host chat
   const [chatDisplayDuration, setChatDisplayDuration] = useState<number>(6000);
@@ -374,6 +375,10 @@ function BundleOverlayContent() {
       stopEventAudio();
       stopChatAudio();
       stopSfxAudio();
+      if (preloadAudioRef.current) {
+        preloadAudioRef.current.src = "";
+        preloadAudioRef.current = null;
+      }
     };
   }, []);
 
@@ -641,7 +646,7 @@ function BundleOverlayContent() {
       try {
         const audio = alertAudioRef.current;
         if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}`;
           audio.volume = 1.0;
           audio.onended = () => {
             if (!currentAlert.mediaUrl) {
@@ -662,12 +667,16 @@ function BundleOverlayContent() {
     };
   }, [currentAlert]);
 
-  // Preload audio for next TikTok Live Event in queue so playback starts instantly
+  // Preload audio for next TikTok Live Event in queue (Single reusable instance, zero memory leak)
   useEffect(() => {
     if (eventQueue.length > 0 && eventQueue[0].speechText) {
-      const preloadAudio = new Audio();
-      preloadAudio.preload = "auto";
-      preloadAudio.src = `/api/tts?text=${encodeURIComponent(eventQueue[0].speechText)}`;
+      if (!preloadAudioRef.current && typeof window !== "undefined") {
+        preloadAudioRef.current = new Audio();
+        preloadAudioRef.current.preload = "auto";
+      }
+      if (preloadAudioRef.current) {
+        preloadAudioRef.current.src = `/api/tts?text=${encodeURIComponent(eventQueue[0].speechText)}`;
+      }
     }
   }, [eventQueue]);
 
@@ -914,7 +923,7 @@ function BundleOverlayContent() {
         const audio = chatAudioRef.current;
         if (audio) {
           const voiceParam = currentChat.voice ? `&voice=${encodeURIComponent(currentChat.voice)}` : "&voice=schoolgirl";
-          audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}&t=${Date.now()}`;
+          audio.src = `/api/tts?text=${encodeURIComponent(currentChat.message)}${voiceParam}`;
           audio.volume = 1.0;
 
           // When audio length is known, adapt countdown bar to EXACT audio length + reading buffer

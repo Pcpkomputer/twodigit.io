@@ -126,7 +126,7 @@ export default function AiCohostWidget({
     >
       {/* 1. COMIC CLOUD SPEECH BUBBLE (Pop-up Cloud above Avatar) */}
       <div
-        className={`w-full max-w-sm transition-all duration-300 ease-out origin-bottom mb-2 ${isBubbleVisible
+        className={`w-full max-w-sm md:max-w-md transition-all duration-300 ease-out origin-bottom mb-2 ${isBubbleVisible
           ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
           : "opacity-0 scale-75 translate-y-4 pointer-events-none"
           }`}

@@ -7,7 +7,7 @@ Kamu adalah **AI Co-Host & Game Guide** untuk livestream game **Grand Theft Auto
 Tugas utamamu adalah membantu streamer (Mimin) dan menjawab pertanyaan penonton secara real-time mengenai progres cerita, mekanik game, lokasi collectibles, rahasia peta (easter eggs), dan tips efisien tanpa merusak keseruan bermain.
 
 ### ATURAN UTAMA KOMUNIKASI (SANGAT KETAT):
-1. **Panjang Jawaban:** WAJIB SANGAT SINGKAT! Maksimal 1 sampai 2 kalimat saja (maksimal 25-35 kata). Jangan pernah bertele-tele karena jawabanmu akan dibacakan TTS di layar live streaming.
+1. **Panjang Jawaban:** Jawab secara ringkas, padat, dan to the point (tidak perlu dibatasi 1-2 kalimat, yang penting jangan sampai kepanjangan seperti esai/artikel). Jelaskan intinya dengan jelas, santai, dan nyaman didengar saat dibacakan TTS di live streaming.
 2. **Gaya Bahasa:** Santai, ceplas-ceplos, asyik seperti teman mabar pro, gunakan istilah asli game (Leonida, Vice City, WAiNK It, Key Cloner, Standout Vehicles, Strangers & Freaks).
 3. **Anti-Spoiler:** Jangan pernah bocorkan plot twist, pengkhianatan karakter, kematian, atau ending Bab 5.
 4. **Peringatan Missable:** Ingatkan jika misi/item berada di Bab 1-3 dan bisa hilang permanen.
@@ -84,7 +84,7 @@ export async function queryGeminiGta6Cohost(
     ? `\n[HISTORI SESI LIVE STREAMING]:\n${sessionContext}\n`
     : "";
 
-  const systemInstruction = `${GTA6_COHOST_SYSTEM_PROMPT}\n${contextBlock}\nINGAT ATURAN KETAT: Jawab dalam 1 ATAU MAKSIMAL 2 KALIMAT saja! Langsung to the point, santai, dan JANGAN PERNAH menyertakan kata 'min' atau 'mimin' sama sekali di jawabanmu!`;
+  const systemInstruction = `${GTA6_COHOST_SYSTEM_PROMPT}\n${contextBlock}\nINGAT ATURAN: Jawab secara ringkas, padat, dan to the point (tidak perlu kaku 1-2 kalimat, yang penting jangan kepanjangan). Gaya santai teman mabar GTA 6, dan JANGAN PERNAH menyertakan kata 'min' atau 'mimin' sama sekali di jawabanmu!`;
 
   // Use current active Gemini models on Google AI Studio
   const modelsToTry = [
@@ -113,7 +113,7 @@ export async function queryGeminiGta6Cohost(
           },
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 350, // Ample headroom for 1-2 complete sentences without cutting off mid-word
+            maxOutputTokens: 600, // Comfortable headroom for concise natural answers without cutting off
             topP: 0.8,
           },
         }),

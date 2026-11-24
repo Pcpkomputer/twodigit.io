@@ -79,9 +79,9 @@ export default function TestOverlayPage() {
   const [bundleAlertPos, setBundleAlertPos] = useState<string>("center");
   const [bundleEventsPos, setBundleEventsPos] = useState<string>("bottom-left");
   const [bundleChatPos, setBundleChatPos] = useState<string>("bottom-left");
-  const [bundleSfxPos, setBundleSfxPos] = useState<string>("bottom-right");
+  const [bundleSfxPos, setBundleSfxPos] = useState<string>("bottom-left");
   const [bundlePollPos, setBundlePollPos] = useState<string>("top-left");
-  const [bundleCohostPos, setBundleCohostPos] = useState<string>("bottom-right");
+  const [bundleCohostPos, setBundleCohostPos] = useState<string>("bottom-left");
   const [bundleScale, setBundleScale] = useState<string>("0.75");
   const [bundleModules, setBundleModules] = useState<{
     alert: boolean;

@@ -116,7 +116,7 @@ function BundleOverlayContent() {
   const chatPos = searchParams.get("chatPos") || "bottom-left";
   const sfxPos = searchParams.get("sfxPos") || "bottom-right"; // bottom-right | bottom-left | top-right | top-left | center
   const pollPos = searchParams.get("pollPos") || "top-left"; // top-left | top-right | bottom-left | bottom-right
-  const cohostPos = searchParams.get("cohostPos") || "bottom-right"; // bottom-right | bottom-left | top-right | top-left
+  const cohostPos = searchParams.get("cohostPos") || "bottom-left"; // bottom-left (default) with margin bottom above ticker
 
   // Modules enable/disable filter (default: all enabled)
   const modulesParam = searchParams.get("modules") || "alert,events,chat,sfx,poll,cohost";
@@ -1584,6 +1584,9 @@ function BundleOverlayContent() {
           isCardVisible={isCohostCardVisible}
           position={cohostPos}
           scale={scale}
+          isSfxActive={Boolean(currentSfx)}
+          sfxPosition={sfxPos}
+          extraBottomOffset={56} // 56px margin bottom to safely clear running text overlay
           onDismiss={() => {
             setIsCohostSpeaking(false);
             setIsCohostCardVisible(false);

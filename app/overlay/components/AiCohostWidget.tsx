@@ -21,27 +21,43 @@ interface AiCohostWidgetProps {
   position?: string; // "bottom-right" | "bottom-left" | "top-right" | "top-left"
   onDismiss?: (id: string) => void;
   scale?: number;
+  isSfxActive?: boolean; // When SFX is active in the same corner, stack Co-Host upwards!
+  sfxPosition?: string;
+  extraBottomOffset?: number; // Custom bottom pixel offset (e.g. 56px to clear running text overlay)
 }
 
 export default function AiCohostWidget({
   currentEvent,
   isSpeaking,
   isCardVisible,
-  position = "bottom-right",
+  position = "bottom-left",
   onDismiss,
   scale = 1,
+  isSfxActive = false,
+  sfxPosition = "bottom-left",
+  extraBottomOffset = 56, // Default 56px margin bottom to safely clear TikTok Studio running text ticker
 }: AiCohostWidgetProps) {
+  // Check if SFX is currently occupying the same corner
+  const isSharingCornerWithSfx = isSfxActive && position === sfxPosition;
+
+  // Calculate dynamic bottom spacing:
+  // Base margin: 56px (clears running text)
+  // If SFX active in same corner: add +115px (height of SFX toast + gap) so Co-Host floats cleanly above it!
+  const computedBottomPx = isSharingCornerWithSfx
+    ? extraBottomOffset + 115
+    : extraBottomOffset;
+
   const getContainerPosition = () => {
     switch (position) {
       case "bottom-left":
-        return "bottom-6 left-6 items-start";
+        return "left-6 items-start";
       case "top-left":
         return "top-6 left-6 items-start";
       case "top-right":
         return "top-6 right-6 items-end";
       case "bottom-right":
       default:
-        return "bottom-6 right-6 items-end";
+        return "right-6 items-end";
     }
   };
 
@@ -67,8 +83,11 @@ export default function AiCohostWidget({
 
   return (
     <div
-      style={scale !== 1 ? { zoom: scale } : undefined}
-      className={`fixed ${getContainerPosition()} z-50 flex flex-col pointer-events-none select-none font-sans`}
+      style={{
+        ...(scale !== 1 ? { zoom: scale } : {}),
+        ...(position.includes("bottom") ? { bottom: `${computedBottomPx}px` } : {}),
+      }}
+      className={`fixed ${getContainerPosition()} z-50 flex flex-col pointer-events-none select-none font-sans transition-all duration-300 ease-out`}
     >
       {/* 1. COMIC CLOUD SPEECH BUBBLE (Pop-up Cloud above Avatar) */}
       <div

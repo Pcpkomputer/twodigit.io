@@ -7,7 +7,7 @@ import AiCohostWidget, { CohostEventPayload } from "../components/AiCohostWidget
 
 function CohostOverlayContent() {
   const searchParams = useSearchParams();
-  const position = searchParams.get("pos") || "bottom-right";
+  const position = searchParams.get("pos") || "bottom-left";
   const isPreview = searchParams.get("preview") === "1";
   const scale = parseFloat(searchParams.get("scale") || "1");
 

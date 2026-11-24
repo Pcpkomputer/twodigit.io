@@ -13,6 +13,11 @@ const isAuthorized = (request: NextRequest) => {
     return true;
   }
 
+  const listenerSecret = request.headers.get("x-listener-secret");
+  if (listenerSecret && listenerSecret === configuredPassword) {
+    return true;
+  }
+
   return Boolean(sessionCookie && sessionCookie === expectedHash);
 };
 

@@ -307,6 +307,45 @@ tiktokLiveConnection.on("chat", async (data) => {
   }
 
   // -----------------------------------------------------------
+  // C. CEK AI CO-HOST COMMAND (!tanyaai <pertanyaan>)
+  // -----------------------------------------------------------
+  const tanyaAiMatch = comment.match(/^!tanyaai\s*(.*)$/i);
+  if (tanyaAiMatch) {
+    const question = (tanyaAiMatch[1] || "").trim();
+    if (question.length > 0) {
+      console.log(`🎮 [AI CO-HOST TANYA] @${userId} (${nickname}): "${question}"`);
+      welcomedUserTimestamps.set(userId, now);
+      lastChatEventTime = now;
+
+      try {
+        const response = await axios.post(
+          `${BACKEND_URL}/api/ai-cohost`,
+          {
+            prompt: question,
+            source: "chat",
+            sender: nickname || userId,
+            voice: "schoolgirl",
+          },
+          {
+            headers: {
+              "Content-Type": "application/json",
+              "x-listener-secret": LISTENER_SECRET,
+            },
+            timeout: 10000,
+          }
+        );
+
+        if (response.data?.success) {
+          console.log(`✨ [AI CO-HOST JAWAB] Veyra AI: "${response.data.cohost?.reply}"`);
+        }
+      } catch (error) {
+        console.error("❌ [AI CO-HOST ERROR] Gagal memanggil endpoint AI Co-Host:", error.response?.data || error.message);
+      }
+      return;
+    }
+  }
+
+  // -----------------------------------------------------------
   // C. REGULAR CHAT COMMENT (Dibacakan oleh TTS di Overlay)
   // -----------------------------------------------------------
   if (comment && comment.length <= 100) {

@@ -509,13 +509,7 @@ export default function TestOverlayPage() {
       if (matched && cleanMessage.length > 0) {
         setSttStatus("processing");
         toast.info(`🎙️ Wake-word terdeteksi: "${cleanMessage}"`);
-
-        // Check if user set STT target to AI Co-Host (GTA 6 Guide) or Direct Chat
-        if (sttTargetModeRef.current === "cohost") {
-          askAiCohost(cleanMessage);
-        } else {
-          sendInteractiveChat(cleanMessage, chatSenderRef.current, chatBadgeRef.current);
-        }
+        sendInteractiveChat(cleanMessage, chatSenderRef.current, chatBadgeRef.current);
 
         setTimeout(() => {
           if (shouldKeepListeningRef.current) {
@@ -2296,40 +2290,10 @@ export default function TestOverlayPage() {
                   </div>
 
                   {/* Wake-Word Config & Live Feedback */}
-                  <div className="mt-4 pt-4 border-t border-gray-200/60 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                  <div className="mt-4 pt-4 border-t border-gray-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
                     <div>
                       <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                        Target Aksi Wake-Word:
-                      </label>
-                      <div className="flex gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setSttTargetMode("cohost")}
-                          className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1 ${
-                            sttTargetMode === "cohost"
-                              ? "bg-pink-600 text-white border-pink-700 shadow-xs"
-                              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                          }`}
-                        >
-                          <span>🎮 GTA 6 Co-Host</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSttTargetMode("chat")}
-                          className={`flex-1 py-1 px-2 rounded-lg text-xs font-bold border transition flex items-center justify-center gap-1 ${
-                            sttTargetMode === "chat"
-                              ? "bg-emerald-600 text-white border-emerald-700 shadow-xs"
-                              : "bg-white text-gray-600 border-gray-300 hover:bg-gray-50"
-                          }`}
-                        >
-                          <span>💬 Broadcast Chat</span>
-                        </button>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-[11px] font-bold text-gray-700 mb-1">
-                        Kata Kunci Pemicu (Wake-Up Word):
+                        Kata Kunci Pemicu (Wake-Up Word untuk Chat Host):
                       </label>
                       <div className="flex gap-2 items-center">
                         <input
@@ -3625,14 +3589,14 @@ export default function TestOverlayPage() {
 
                   <div className="text-xs text-gray-600 space-y-2.5 leading-relaxed">
                     <div className="p-3 rounded-xl bg-pink-50/50 border border-pink-100">
-                      <strong className="text-pink-900 font-bold block mb-0.5">🎙️ Mode Hands-Free Mic (Wake-Word):</strong>
-                      Aktifkan mic di tab <em>Interactive Chat</em>, lalu cukup katakan:
+                      <strong className="text-pink-900 font-bold block mb-0.5">💬 Dipicu Chat Komentar TikTok (!tanyaai):</strong>
+                      Penonton di TikTok Live cukup mengetik di kolom komentar:
                       <br />
                       <code className="text-pink-700 font-bold bg-white px-1.5 py-0.5 rounded border border-pink-200 mt-1 inline-block">
-                        &ldquo;jawab di mana lokasi flamingo rahasia?&rdquo;
+                        !tanyaai di mana lokasi Skunk Ape?
                       </code>
                       <br />
-                      Sistem langsung memanggil Gemini dan memunculkan avatar Co-Host dengan balon awan!
+                      TikTok Listener akan menangkap komentar tersebut, Gemini Flash memproses jawabannya, dan avatar Veyra AI langsung muncul dengan balon awan di stream!
                     </div>
 
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">

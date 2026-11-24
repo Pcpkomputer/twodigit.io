@@ -225,7 +225,7 @@ function BundleOverlayContent() {
       try {
         alertAudioRef.current.pause();
         alertAudioRef.current.currentTime = 0;
-      } catch {}
+      } catch { }
     }
   };
 
@@ -242,7 +242,7 @@ function BundleOverlayContent() {
       try {
         eventAudioRef.current.pause();
         eventAudioRef.current.currentTime = 0;
-      } catch {}
+      } catch { }
     }
   };
 
@@ -298,12 +298,12 @@ function BundleOverlayContent() {
       try {
         chatAudioRef.current.pause();
         chatAudioRef.current.currentTime = 0;
-      } catch {}
+      } catch { }
     }
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       try {
         window.speechSynthesis.cancel();
-      } catch {}
+      } catch { }
     }
   };
 
@@ -315,7 +315,7 @@ function BundleOverlayContent() {
       try {
         sfxAudioRef.current.pause();
         sfxAudioRef.current.currentTime = 0;
-      } catch {}
+      } catch { }
     }
   };
 
@@ -370,8 +370,8 @@ function BundleOverlayContent() {
           "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
         );
         silentAudio.volume = 0.01;
-        silentAudio.play().catch(() => {});
-      } catch {}
+        silentAudio.play().catch(() => { });
+      } catch { }
       setAudioUnlocked(true);
       window.removeEventListener("click", unlock);
     };
@@ -483,7 +483,7 @@ function BundleOverlayContent() {
           setPoll(data.poll);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
   }, []);
 
   // SINGLE UNIFIED PUSHER SUBSCRIPTION (Replaces 4-5 independent WebSockets)
@@ -591,9 +591,9 @@ function BundleOverlayContent() {
           if (sfxAudio) {
             sfxAudio.src = data.url;
             sfxAudio.volume = 1.0;
-            sfxAudio.play().catch(() => {});
+            sfxAudio.play().catch(() => { });
           }
-        } catch {}
+        } catch { }
 
         sfxDismissTimerRef.current = setTimeout(() => {
           setCurrentSfx(null);
@@ -656,9 +656,8 @@ function BundleOverlayContent() {
     }
 
     const amountWords = numberToIndonesianWords(currentAlert.amount);
-    const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${
-      currentAlert.message ? currentAlert.message : ""
-    }`;
+    const speechText = `${currentAlert.name} mendonasikan ${amountWords} rupiah. ${currentAlert.message ? currentAlert.message : ""
+      }`;
 
     const safetyTimeout = currentAlert.mediaUrl ? 18000 : 15000;
     alertDismissTimerRef.current = setTimeout(() => {
@@ -682,9 +681,9 @@ function BundleOverlayContent() {
               }, 2000);
             }
           };
-          audio.play().catch(() => {});
+          audio.play().catch(() => { });
         }
-      } catch {}
+      } catch { }
     }
 
     return () => {
@@ -1062,7 +1061,7 @@ function BundleOverlayContent() {
           audio.onloadedmetadata = () => {
             setIsCohostCardVisible(true);
             setIsCohostSpeaking(true);
-            audio.play().catch(() => {});
+            audio.play().catch(() => { });
           };
 
           audio.onended = () => {
@@ -1099,7 +1098,7 @@ function BundleOverlayContent() {
         cohostAudioRef.current.onloadedmetadata = null;
         try {
           cohostAudioRef.current.pause();
-        } catch {}
+        } catch { }
       }
     };
   }, [currentCohost]);
@@ -1190,7 +1189,7 @@ function BundleOverlayContent() {
               "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA"
             );
             silent.volume = 0.01;
-            silent.play().catch(() => {});
+            silent.play().catch(() => { });
             setAudioUnlocked(true);
           }}
           className="fixed top-4 left-1/2 -translate-x-1/2 bg-black/85 text-yellow-300 text-xs font-bold px-4 py-2 rounded-full border border-yellow-400 pointer-events-auto cursor-pointer animate-pulse z-50 shadow-lg flex items-center gap-1.5"
@@ -1260,11 +1259,10 @@ function BundleOverlayContent() {
             key={currentEvent.id}
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={() => dismissActiveEvent(currentEvent.id)}
-            className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${
-              exitingEventId === currentEvent.id
-                ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
-                : "opacity-100 translate-y-0 scale-100"
-            }`}
+            className={`w-full max-w-md flex flex-col gap-2 pointer-events-auto cursor-pointer transition-all duration-300 ease-out ${exitingEventId === currentEvent.id
+              ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+              : "opacity-100 translate-y-0 scale-100"
+              }`}
           >
             {/* Saweria Style Floating Event Card */}
             <div className="bg-black/85 rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-2xl flex flex-col gap-2.5 backdrop-blur-none">
@@ -1339,11 +1337,10 @@ function BundleOverlayContent() {
           <div
             style={scale !== 1 ? { zoom: scale } : undefined}
             onClick={dismissChat}
-            className={`transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer ${
-              isChatExiting
-                ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
-                : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
-            }`}
+            className={`transition-all duration-300 max-w-lg w-full pointer-events-auto cursor-pointer ${isChatExiting
+              ? "opacity-0 translate-y-3 scale-95 pointer-events-none"
+              : "opacity-100 translate-y-0 scale-100 animate-in fade-in slide-in-from-bottom-5"
+              }`}
           >
             {/* Streamer Speech Card */}
             <div className="bg-black/85 backdrop-blur-none rounded-2xl p-4 md:p-5 border-2 border-yellow-400 shadow-[0_10px_35px_rgba(0,0,0,0.8)] flex flex-col gap-2.5 transition hover:border-yellow-300 relative overflow-hidden">
@@ -1586,7 +1583,7 @@ function BundleOverlayContent() {
           scale={scale}
           isSfxActive={Boolean(currentSfx)}
           sfxPosition={sfxPos}
-          extraBottomOffset={56} // 56px margin bottom to safely clear running text overlay
+          extraBottomOffset={110} // 56px margin bottom to safely clear running text overlay
           onDismiss={() => {
             setIsCohostSpeaking(false);
             setIsCohostCardVisible(false);

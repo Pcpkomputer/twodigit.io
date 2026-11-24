@@ -334,7 +334,7 @@ tiktokLiveConnection.on("chat", async (data) => {
             prompt: question,
             source: "chat",
             sender: nickname || userId,
-            voice: "schoolgirl",
+            voice: "ardi",
           },
           {
             headers: {

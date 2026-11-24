@@ -58,7 +58,7 @@ function CohostOverlayContent() {
         reply: "Skunk Ape ada di rawa Gullet Marsh deket Cottonmouth Lake. Cari selebarannya malam hari terus kontak Kirk!",
         speechText: "Skunk Ape ada di rawa Gullet Marsh deket Cottonmouth Lake. Cari selebarannya malam hari terus kontak Kirk!",
         mood: "excited",
-        voice: "schoolgirl",
+        voice: "ardi",
         timestamp: new Date().toISOString(),
       });
       setIsCardVisible(true);
@@ -103,7 +103,7 @@ function CohostOverlayContent() {
 
     const eventId = currentEvent.id;
     const speechText = currentEvent.speechText || currentEvent.reply || "";
-    const voice = currentEvent.voice || "schoolgirl";
+    const voice = currentEvent.voice || "ardi";
 
     const dismissCurrent = () => {
       setIsSpeaking(false);

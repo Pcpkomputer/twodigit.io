@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
       prompt = "",
       source = "streamer", // "streamer" | "chat"
       sender = "Streamer",
-      voice = "schoolgirl", // "schoolgirl" | "anime" | "gadis" | "ardi"
+      voice = "ardi", // "ardi" (default Cowok Natural) | "schoolgirl" | "anime" | "gadis"
       sessionContext = "",
     } = body;
 
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       reply: cohostReply.reply,
       speechText: cohostReply.speechText,
       mood: cohostReply.mood,
-      voice: voice || "schoolgirl",
+      voice: voice || "ardi",
       source,
       sender: sender || "Budak Mimin",
       cooldownSeconds: COOLDOWN_SECONDS,

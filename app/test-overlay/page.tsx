@@ -155,7 +155,7 @@ export default function TestOverlayPage() {
 
   // State for AI Co-Host Testing (GTA 6 Guide)
   const [cohostPrompt, setCohostPrompt] = useState<string>("Di mana lokasi Skunk Ape?");
-  const [cohostVoice, setCohostVoice] = useState<string>("schoolgirl");
+  const [cohostVoice, setCohostVoice] = useState<string>("ardi");
   const [isAskingCohost, setIsAskingCohost] = useState<boolean>(false);
   const [sttTargetMode, setSttTargetMode] = useState<"cohost" | "chat">("cohost");
   const sttTargetModeRef = useRef<"cohost" | "chat">("cohost");

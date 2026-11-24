@@ -1040,7 +1040,7 @@ function BundleOverlayContent() {
 
     const eventId = currentCohost.id;
     const speechText = currentCohost.speechText || currentCohost.reply || "";
-    const voice = currentCohost.voice || "schoolgirl";
+    const voice = currentCohost.voice || "ardi";
 
     let cohostDismissTimeout: NodeJS.Timeout | null = null;
 

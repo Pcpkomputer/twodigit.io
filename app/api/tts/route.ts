@@ -1,8 +1,41 @@
 import { NextRequest, NextResponse } from "next/server";
 import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
 
+// In-memory LRU audio cache for ultra-fast repeated TTS (instant <1ms response)
+const ttsMemoryCache = new Map<string, Buffer>();
+const MAX_TTS_CACHE = 300;
+
+function getCachedTTS(key: string): Buffer | null {
+  const buf = ttsMemoryCache.get(key);
+  if (!buf) return null;
+  // Refresh LRU position
+  ttsMemoryCache.delete(key);
+  ttsMemoryCache.set(key, buf);
+  return buf;
+}
+
+function setCachedTTS(key: string, buf: Buffer): void {
+  if (ttsMemoryCache.size >= MAX_TTS_CACHE) {
+    const oldest = ttsMemoryCache.keys().next().value;
+    if (oldest) ttsMemoryCache.delete(oldest);
+  }
+  ttsMemoryCache.set(key, buf);
+}
+
+function createAudioResponse(buffer: Buffer, isCacheHit = false): NextResponse {
+  return new NextResponse(new Uint8Array(buffer), {
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Accept-Ranges": "bytes",
+      "Content-Length": buffer.byteLength.toString(),
+      "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
+      "X-Cache": isCacheHit ? "HIT" : "MISS",
+    },
+  });
+}
+
 /**
- * Ultra-fast Google Indonesian TTS (typical response: ~200-300ms)
+ * Ultra-fast Google Indonesian TTS (typical response: ~150-300ms)
  * Standard familiar Indonesian streamer voice (same as Saweria/Sociabuzz)
  */
 async function fetchGoogleTTS(text: string): Promise<Buffer> {
@@ -11,7 +44,7 @@ async function fetchGoogleTTS(text: string): Promise<Buffer> {
     headers: {
       "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
     },
-    signal: AbortSignal.timeout(3500),
+    signal: AbortSignal.timeout(2000), // Max 2s before falling back to Edge Neural
   });
 
   if (!res.ok) {
@@ -45,8 +78,8 @@ async function fetchEdgeTTS(
 
   return new Promise<Buffer>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error("Edge TTS timed out after 6000ms"));
-    }, 6000);
+      reject(new Error("Edge TTS timed out after 5000ms"));
+    }, 5000);
 
     const chunks: Buffer[] = [];
     streamResult.audioStream.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -73,8 +106,15 @@ export async function GET(req: NextRequest) {
   }
 
   const cleanText = text.trim().slice(0, 400);
+  const cacheKey = `${voice || "google"}:${cleanText}:${customPitch || ""}:${customRate || ""}`;
 
-  // If a specific Neural voice is requested (e.g. schoolgirl / young girl / gadis / ardi)
+  // 1. FAST PATH: In-memory cache hit (< 1ms instant response)
+  const cached = getCachedTTS(cacheKey);
+  if (cached) {
+    return createAudioResponse(cached, true);
+  }
+
+  // 2. Specific Neural voices (schoolgirl / young girl / gadis / ardi)
   if (voice === "schoolgirl" || voice === "remaja" || voice === "young-girl" || voice === "smp") {
     try {
       const edgeBuffer = await fetchEdgeTTS(
@@ -83,14 +123,8 @@ export async function GET(req: NextRequest) {
         customPitch || "+20%",
         customRate || "+5%"
       );
-      return new NextResponse(new Uint8Array(edgeBuffer), {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Accept-Ranges": "bytes",
-          "Content-Length": edgeBuffer.byteLength.toString(),
-          "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-        },
-      });
+      setCachedTTS(cacheKey, edgeBuffer);
+      return createAudioResponse(edgeBuffer, false);
     } catch (edgeError) {
       console.warn("Schoolgirl Edge TTS failed, falling back to Google:", edgeError);
     }
@@ -102,14 +136,8 @@ export async function GET(req: NextRequest) {
         customPitch || "+30%",
         customRate || "+8%"
       );
-      return new NextResponse(new Uint8Array(edgeBuffer), {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Accept-Ranges": "bytes",
-          "Content-Length": edgeBuffer.byteLength.toString(),
-          "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-        },
-      });
+      setCachedTTS(cacheKey, edgeBuffer);
+      return createAudioResponse(edgeBuffer, false);
     } catch (edgeError) {
       console.warn("Anime Edge TTS failed, falling back to Google:", edgeError);
     }
@@ -121,14 +149,8 @@ export async function GET(req: NextRequest) {
         customPitch || "+0%",
         customRate || "+0%"
       );
-      return new NextResponse(new Uint8Array(edgeBuffer), {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Accept-Ranges": "bytes",
-          "Content-Length": edgeBuffer.byteLength.toString(),
-          "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-        },
-      });
+      setCachedTTS(cacheKey, edgeBuffer);
+      return createAudioResponse(edgeBuffer, false);
     } catch (edgeError) {
       console.warn("Gadis Neural TTS failed, falling back to Google:", edgeError);
     }
@@ -140,45 +162,27 @@ export async function GET(req: NextRequest) {
         customPitch || "+0%",
         customRate || "+0%"
       );
-      return new NextResponse(new Uint8Array(edgeBuffer), {
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "Accept-Ranges": "bytes",
-          "Content-Length": edgeBuffer.byteLength.toString(),
-          "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-        },
-      });
+      setCachedTTS(cacheKey, edgeBuffer);
+      return createAudioResponse(edgeBuffer, false);
     } catch (edgeError) {
       console.warn("Ardi Neural TTS failed, falling back to Google:", edgeError);
     }
   }
 
-  // Default / Google TTS (Ultra low latency ~300ms)
+  // 3. Default / Google TTS (Ultra low latency ~200-300ms)
   try {
     const audioBuffer = await fetchGoogleTTS(cleanText);
-    return new NextResponse(new Uint8Array(audioBuffer), {
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Accept-Ranges": "bytes",
-        "Content-Length": audioBuffer.byteLength.toString(),
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-      },
-    });
+    setCachedTTS(cacheKey, audioBuffer);
+    return createAudioResponse(audioBuffer, false);
   } catch (googleError) {
     console.warn("Google TTS failed, attempting Edge Neural TTS fallback:", googleError);
   }
 
-  // Final fallback to Edge Neural TTS
+  // 4. Final fallback to Edge Neural TTS
   try {
     const edgeBuffer = await fetchEdgeTTS(cleanText, "id-ID-GadisNeural", "+15%", "+5%");
-    return new NextResponse(new Uint8Array(edgeBuffer), {
-      headers: {
-        "Content-Type": "audio/mpeg",
-        "Accept-Ranges": "bytes",
-        "Content-Length": edgeBuffer.byteLength.toString(),
-        "Cache-Control": "public, max-age=86400, stale-while-revalidate=43200",
-      },
-    });
+    setCachedTTS(cacheKey, edgeBuffer);
+    return createAudioResponse(edgeBuffer, false);
   } catch (edgeError) {
     console.error("All TTS generation methods failed:", edgeError);
     return new NextResponse("Failed to generate TTS audio", {

@@ -19,6 +19,7 @@ function TikTokEventsOverlayContent() {
   // Active audio state & countdown duration (forces continuous 60fps compositing on macOS CEF / Apple Silicon M1)
   const [isSpeaking, setIsSpeaking] = useState<boolean>(false);
   const [displayDuration, setDisplayDuration] = useState<number>(4500);
+  const [isCardVisible, setIsCardVisible] = useState<boolean>(false);
 
   // Audio and timer references
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -26,6 +27,7 @@ function TikTokEventsOverlayContent() {
   const dismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const exitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const cardRevealTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const eventVisibleSinceRef = useRef<number>(0);
 
   // Clear timers belonging to the active event (does NOT touch exitTimer)
@@ -37,6 +39,10 @@ function TikTokEventsOverlayContent() {
     if (watchdogTimerRef.current) {
       clearTimeout(watchdogTimerRef.current);
       watchdogTimerRef.current = null;
+    }
+    if (cardRevealTimeoutRef.current) {
+      clearTimeout(cardRevealTimeoutRef.current);
+      cardRevealTimeoutRef.current = null;
     }
   };
 
@@ -169,6 +175,7 @@ function TikTokEventsOverlayContent() {
       };
       currentEventIdRef.current = "preview-1";
       setCurrentEvent(previewItem);
+      setIsCardVisible(true);
       setExitingEventId(null);
       setDisplayDuration(6000);
     }
@@ -231,12 +238,22 @@ function TikTokEventsOverlayContent() {
     };
   }, []);
 
+  // Preload audio for next in queue so playback starts instantly when popped
+  useEffect(() => {
+    if (queue.length > 0 && queue[0].speechText) {
+      const preloadAudio = new Audio();
+      preloadAudio.preload = "auto";
+      preloadAudio.src = `/api/tts?text=${encodeURIComponent(queue[0].speechText)}`;
+    }
+  }, [queue]);
+
   // Queue Consumer: Deterministically picks next item when idle and previous exit animation has cleared
   useEffect(() => {
     if (currentEvent === null && queue.length > 0 && exitingEventId === null) {
       const [nextItem, ...remaining] = queue;
       currentEventIdRef.current = nextItem.id;
       setExitingEventId(null);
+      setIsCardVisible(false);
       setCurrentEvent(nextItem);
       setQueue(remaining);
     }
@@ -268,6 +285,20 @@ function TikTokEventsOverlayContent() {
       return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
     };
 
+    // Helper: Reveal card & start visible countdown timer
+    const revealCard = (durationMs?: number) => {
+      if (cardRevealTimeoutRef.current) {
+        clearTimeout(cardRevealTimeoutRef.current);
+        cardRevealTimeoutRef.current = null;
+      }
+      if (currentEventIdRef.current !== eventId) return;
+      eventVisibleSinceRef.current = Date.now();
+      if (durationMs) {
+        setDisplayDuration(durationMs);
+      }
+      setIsCardVisible(true);
+    };
+
     // 1. SAFETY WATCHDOG TIMER: Always guarantees the card auto-dismisses eventually
     const estimatedDuration = Math.min(
       15000,
@@ -279,34 +310,53 @@ function TikTokEventsOverlayContent() {
       }
     }, estimatedDuration);
 
-    // 2. PLAY TTS AUDIO DIRECTLY (Synchronous call - zero rAF delay to avoid background tab freezes)
+    // 2. PLAY TTS AUDIO DIRECTLY & SYNCHRONIZE CARD REVEAL
     if (speechText) {
+      // Safety reveal timer: if network/audio takes > 450ms, reveal card anyway so it never hangs
+      cardRevealTimeoutRef.current = setTimeout(() => {
+        revealCard(4500);
+      }, 450);
+
       try {
         const audio = audioRef.current;
         if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}`;
           audio.volume = 1.0;
 
-          // When exact audio duration is loaded, adapt watchdog accurately
+          // When audio metadata is loaded: set exact duration, reveal card, and play audio synchronously!
           audio.onloadedmetadata = () => {
             if (currentEventIdRef.current !== eventId) return;
-            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-              const audioMs = Math.round(audio.duration * 1000);
-              setDisplayDuration(Math.max(4000, audioMs + 1500));
-              if (watchdogTimerRef.current) {
-                clearTimeout(watchdogTimerRef.current);
-              }
-              watchdogTimerRef.current = setTimeout(() => {
-                if (currentEventIdRef.current === eventId) {
-                  dismissCurrentEvent(eventId);
-                }
-              }, audioMs + 3200);
+            const audioMs =
+              audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                ? Math.round(audio.duration * 1000)
+                : 3000;
+            const totalDisplayMs = Math.max(4000, audioMs + 1500);
+            revealCard(totalDisplayMs);
+
+            if (watchdogTimerRef.current) {
+              clearTimeout(watchdogTimerRef.current);
             }
+            watchdogTimerRef.current = setTimeout(() => {
+              if (currentEventIdRef.current === eventId) {
+                dismissCurrentEvent(eventId);
+              }
+            }, audioMs + 3200);
+
+            audio.play().catch((err) => {
+              if (currentEventIdRef.current !== eventId) return;
+              setIsSpeaking(false);
+              if (err.name === "AbortError") return;
+              if (err.name === "NotAllowedError") {
+                setAudioUnlocked(false);
+              }
+              console.warn("Audio autoplay blocked:", err);
+            });
           };
 
           audio.onplay = () => {
             if (currentEventIdRef.current === eventId) {
               setIsSpeaking(true);
+              revealCard();
             }
           };
 
@@ -325,6 +375,7 @@ function TikTokEventsOverlayContent() {
           audio.onerror = (e) => {
             if (currentEventIdRef.current !== eventId) return;
             setIsSpeaking(false);
+            revealCard(4200);
             console.warn("TTS audio failed to load:", e);
             if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
             dismissTimerRef.current = setTimeout(() => {
@@ -340,31 +391,18 @@ function TikTokEventsOverlayContent() {
               .then(() => {
                 if (currentEventIdRef.current === eventId) {
                   setIsSpeaking(true);
+                  revealCard();
                 }
               })
               .catch((err) => {
                 if (currentEventIdRef.current !== eventId) return;
-                setIsSpeaking(false);
                 if (err.name === "AbortError") return;
-                if (err.name === "NotAllowedError") {
-                  setAudioUnlocked(false);
-                }
-                console.warn("Audio autoplay blocked or interrupted:", err);
-                const knownAudioMs =
-                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                    ? Math.round(audio.duration * 1000)
-                    : 0;
-                if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
-                dismissTimerRef.current = setTimeout(() => {
-                  if (currentEventIdRef.current === eventId) {
-                    dismissCurrentEvent(eventId);
-                  }
-                }, Math.max(4200, knownAudioMs + 1500));
               });
           }
         }
       } catch (err) {
         console.error("TTS playback error:", err);
+        revealCard(4200);
         setIsSpeaking(false);
         if (dismissTimerRef.current) clearTimeout(dismissTimerRef.current);
         dismissTimerRef.current = setTimeout(() => {
@@ -375,7 +413,7 @@ function TikTokEventsOverlayContent() {
       }
     } else {
       // Event without audio text: display for 4.2 seconds
-      setDisplayDuration(4200);
+      revealCard(4200);
       dismissTimerRef.current = setTimeout(() => {
         if (currentEventIdRef.current === eventId) {
           dismissCurrentEvent(eventId);
@@ -462,7 +500,7 @@ function TikTokEventsOverlayContent() {
           <span>🔊</span> Klik layar untuk mengaktifkan suara audio
         </div>
       )}
-      {currentEvent && (
+      {currentEvent && isCardVisible && (
         <div
           key={currentEvent.id}
           onClick={() => dismissCurrentEvent(currentEvent.id)}

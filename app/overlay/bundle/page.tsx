@@ -133,6 +133,7 @@ function BundleOverlayContent() {
   const [exitingEventId, setExitingEventId] = useState<string | null>(null);
   const [isEventSpeaking, setIsEventSpeaking] = useState<boolean>(false);
   const [eventDisplayDuration, setEventDisplayDuration] = useState<number>(4500);
+  const [isEventCardVisible, setIsEventCardVisible] = useState<boolean>(false);
 
   // State: Host Interactive Chat & Announcement
   const [currentChat, setCurrentChat] = useState<InteractiveChatMessage | null>(null);
@@ -163,6 +164,7 @@ function BundleOverlayContent() {
   const eventDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const eventWatchdogTimerRef = useRef<NodeJS.Timeout | null>(null);
   const eventExitTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const eventCardRevealTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const chatDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
   const sfxDismissTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -198,6 +200,10 @@ function BundleOverlayContent() {
     if (eventWatchdogTimerRef.current) {
       clearTimeout(eventWatchdogTimerRef.current);
       eventWatchdogTimerRef.current = null;
+    }
+    if (eventCardRevealTimeoutRef.current) {
+      clearTimeout(eventCardRevealTimeoutRef.current);
+      eventCardRevealTimeoutRef.current = null;
     }
   };
 
@@ -400,6 +406,7 @@ function BundleOverlayContent() {
           priority: 1,
         });
         activeEventIdRef.current = "prev-event";
+        setIsEventCardVisible(true);
         setEventDisplayDuration(6000);
       }
 
@@ -655,6 +662,15 @@ function BundleOverlayContent() {
     };
   }, [currentAlert]);
 
+  // Preload audio for next TikTok Live Event in queue so playback starts instantly
+  useEffect(() => {
+    if (eventQueue.length > 0 && eventQueue[0].speechText) {
+      const preloadAudio = new Audio();
+      preloadAudio.preload = "auto";
+      preloadAudio.src = `/api/tts?text=${encodeURIComponent(eventQueue[0].speechText)}`;
+    }
+  }, [eventQueue]);
+
   // TikTok Live Events Queue Processor (Strictly paused while Host Chat is active, queued, or exiting)
   useEffect(() => {
     const isRealChatActive = currentChat !== null && currentChat.id !== "prev-chat";
@@ -669,6 +685,7 @@ function BundleOverlayContent() {
       const [nextEvent, ...remaining] = eventQueue;
       activeEventIdRef.current = nextEvent.id;
       setExitingEventId(null);
+      setIsEventCardVisible(false);
       setCurrentEvent(nextEvent);
       setEventQueue(remaining);
     }
@@ -704,6 +721,20 @@ function BundleOverlayContent() {
       return Math.max(postAudioMs, minTotalVisibleMs - elapsedVisible);
     };
 
+    // Helper: Reveal event card & synchronize countdown timer
+    const revealEventCard = (durationMs?: number) => {
+      if (eventCardRevealTimeoutRef.current) {
+        clearTimeout(eventCardRevealTimeoutRef.current);
+        eventCardRevealTimeoutRef.current = null;
+      }
+      if (activeEventIdRef.current !== eventId) return;
+      eventVisibleSinceRef.current = Date.now();
+      if (durationMs) {
+        setEventDisplayDuration(durationMs);
+      }
+      setIsEventCardVisible(true);
+    };
+
     // Dynamic non-blocking watchdog timer
     const estimatedDuration = Math.min(
       15000,
@@ -715,32 +746,52 @@ function BundleOverlayContent() {
       }
     }, estimatedDuration);
 
-    // Play TTS Audio Synchronously (No rAF delay to avoid background tab freeze)
+    // Play TTS Audio Synchronously & Synchronize Card Reveal
     if (speechText) {
+      // Safety reveal timer: if network/audio takes > 450ms, reveal card anyway so it never hangs
+      eventCardRevealTimeoutRef.current = setTimeout(() => {
+        revealEventCard(4500);
+      }, 450);
+
       try {
         const audio = eventAudioRef.current;
         if (audio) {
-          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}&t=${Date.now()}`;
+          // No &t= cache buster to enable instant browser memory & HTTP caching
+          audio.src = `/api/tts?text=${encodeURIComponent(speechText)}`;
           audio.volume = 1.0;
 
-          // When exact audio length is known, adapt dismiss time accurately
+          // When audio metadata is loaded: set exact duration, reveal card, and play audio synchronously!
           audio.onloadedmetadata = () => {
             if (activeEventIdRef.current !== eventId) return;
-            if (audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)) {
-              const audioMs = Math.round(audio.duration * 1000);
-              setEventDisplayDuration(Math.max(4000, audioMs + 1500));
-              if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
-              eventWatchdogTimerRef.current = setTimeout(() => {
-                if (activeEventIdRef.current === eventId) {
-                  dismissActiveEvent(eventId);
-                }
-              }, audioMs + 3200);
-            }
+            const audioMs =
+              audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
+                ? Math.round(audio.duration * 1000)
+                : 3000;
+            const totalDisplayMs = Math.max(4000, audioMs + 1500);
+            revealEventCard(totalDisplayMs);
+
+            if (eventWatchdogTimerRef.current) clearTimeout(eventWatchdogTimerRef.current);
+            eventWatchdogTimerRef.current = setTimeout(() => {
+              if (activeEventIdRef.current === eventId) {
+                dismissActiveEvent(eventId);
+              }
+            }, audioMs + 3200);
+
+            audio.play().catch((err) => {
+              if (activeEventIdRef.current !== eventId) return;
+              setIsEventSpeaking(false);
+              if (err.name === "AbortError") return;
+              if (err.name === "NotAllowedError") {
+                setAudioUnlocked(false);
+              }
+              console.warn("Event audio autoplay blocked:", err);
+            });
           };
 
           audio.onplay = () => {
             if (activeEventIdRef.current === eventId) {
               setIsEventSpeaking(true);
+              revealEventCard();
             }
           };
 
@@ -758,6 +809,7 @@ function BundleOverlayContent() {
           audio.onerror = () => {
             if (activeEventIdRef.current !== eventId) return;
             setIsEventSpeaking(false);
+            revealEventCard(4200);
             if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
             eventDismissTimerRef.current = setTimeout(() => {
               if (activeEventIdRef.current === eventId) {
@@ -772,30 +824,18 @@ function BundleOverlayContent() {
               .then(() => {
                 if (activeEventIdRef.current === eventId) {
                   setIsEventSpeaking(true);
+                  revealEventCard();
                 }
               })
               .catch((err) => {
                 if (activeEventIdRef.current !== eventId) return;
-                setIsEventSpeaking(false);
                 if (err.name === "AbortError") return;
-                if (err.name === "NotAllowedError") {
-                  setAudioUnlocked(false);
-                }
-                const knownAudioMs =
-                  audio.duration && !isNaN(audio.duration) && isFinite(audio.duration)
-                    ? Math.round(audio.duration * 1000)
-                    : 0;
-                if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
-                eventDismissTimerRef.current = setTimeout(() => {
-                  if (activeEventIdRef.current === eventId) {
-                    dismissActiveEvent(eventId);
-                  }
-                }, Math.max(4200, knownAudioMs + 1500));
               });
           }
         }
       } catch {
         setIsEventSpeaking(false);
+        revealEventCard(4200);
         if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
         eventDismissTimerRef.current = setTimeout(() => {
           if (activeEventIdRef.current === eventId) {
@@ -804,7 +844,7 @@ function BundleOverlayContent() {
         }, getHoldDelay(3500, 4200));
       }
     } else {
-      setEventDisplayDuration(4200);
+      revealEventCard(4200);
       if (eventDismissTimerRef.current) clearTimeout(eventDismissTimerRef.current);
       eventDismissTimerRef.current = setTimeout(() => {
         if (activeEventIdRef.current === eventId) {
@@ -1074,7 +1114,7 @@ function BundleOverlayContent() {
       )}
 
       {/* 2. TIKTOK LIVE EVENTS TTS WIDGET (100% IDENTICAL TO /overlay/events) */}
-      {enabledModules.has("events") && currentEvent && (
+      {enabledModules.has("events") && currentEvent && isEventCardVisible && (
         <div
           className={`absolute inset-0 flex pointer-events-none ${getContainerClasses(
             eventsPos

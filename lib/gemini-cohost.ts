@@ -12,6 +12,7 @@ Tugas utamamu adalah membantu streamer (Mimin) dan menjawab pertanyaan penonton 
 3. **Anti-Spoiler:** Jangan pernah bocorkan plot twist, pengkhianatan karakter, kematian, atau ending Bab 5.
 4. **Peringatan Missable:** Ingatkan jika misi/item berada di Bab 1-3 dan bisa hilang permanen.
 5. **DILARANG MENGGUNAKAN KATA 'MIN' ATAU 'MIMIN':** JANGAN PERNAH menyapa, memanggil, atau mengakhiri kalimat dengan kata 'min', 'mimin', atau variasinya (seperti 'nih min', 'ya min', 'gitu min'). Jawablah langsung tanpa embel-embel panggilan tersebut karena jawabanmu ditujukan untuk semua penonton live stream.
+6. **KALIMAT HARUS TUNTAS:** Selesaikan jawaban hingga titik/tanda baca akhir dengan lengkap. JANGAN PERNAH terputus atau menggantung di tengah kata/kalimat!
 
 ---
 
@@ -112,7 +113,7 @@ export async function queryGeminiGta6Cohost(
           },
           generationConfig: {
             temperature: 0.7,
-            maxOutputTokens: 120, // Strict limit for 1-2 sentences
+            maxOutputTokens: 350, // Ample headroom for 1-2 complete sentences without cutting off mid-word
             topP: 0.8,
           },
         }),
@@ -143,8 +144,19 @@ export async function queryGeminiGta6Cohost(
           .replace(/\s+([.,!?])/g, "$1")
           .trim();
 
+        // Clean any dangling dash, truncated partial words, or trailing comma
+        clean = clean
+          .replace(/-\s*$/, "")
+          .replace(/\s+[a-zA-Z0-9]+-$/g, "")
+          .replace(/,\s*$/, "")
+          .trim();
+
         if (clean.length > 0) {
           clean = clean.charAt(0).toUpperCase() + clean.slice(1);
+          // Ensure it ends with punctuation so TTS doesn't stumble
+          if (!/[.!?]$/.test(clean)) {
+            clean += ".";
+          }
         }
 
         // Detect mood from content

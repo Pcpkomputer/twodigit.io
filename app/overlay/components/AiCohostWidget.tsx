@@ -35,7 +35,7 @@ export default function AiCohostWidget({
   scale = 1,
   isSfxActive = false,
   sfxPosition = "bottom-left",
-  extraBottomOffset = 56, // Default 56px margin bottom to safely clear TikTok Studio running text ticker
+  extraBottomOffset = 75, // Default 56px margin bottom to safely clear TikTok Studio running text ticker
 }: AiCohostWidgetProps) {
   // Check if SFX is currently occupying the same corner
   const isSharingCornerWithSfx = isSfxActive && position === sfxPosition;
@@ -91,11 +91,10 @@ export default function AiCohostWidget({
     >
       {/* 1. COMIC CLOUD SPEECH BUBBLE (Pop-up Cloud above Avatar) */}
       <div
-        className={`w-full max-w-sm transition-all duration-300 ease-out origin-bottom mb-2 ${
-          isBubbleVisible
-            ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
-            : "opacity-0 scale-75 translate-y-4 pointer-events-none"
-        }`}
+        className={`w-full max-w-sm transition-all duration-300 ease-out origin-bottom mb-2 ${isBubbleVisible
+          ? "opacity-100 scale-100 translate-y-0 pointer-events-auto"
+          : "opacity-0 scale-75 translate-y-4 pointer-events-none"
+          }`}
       >
         {currentEvent && (
           <div
@@ -150,14 +149,12 @@ export default function AiCohostWidget({
 
               {/* Cloud Speech Tail Arrow (pointing down to avatar) */}
               <div
-                className={`absolute -bottom-3 ${
-                  position.includes("right") ? "right-8" : "left-8"
-                } w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[14px] border-t-pink-400`}
+                className={`absolute -bottom-3 ${position.includes("right") ? "right-8" : "left-8"
+                  } w-0 h-0 border-l-[12px] border-l-transparent border-r-[12px] border-r-transparent border-t-[14px] border-t-pink-400`}
               ></div>
               <div
-                className={`absolute -bottom-2 ${
-                  position.includes("right") ? "right-[33px]" : "left-[33px]"
-                } w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[12px] border-t-black/90`}
+                className={`absolute -bottom-2 ${position.includes("right") ? "right-[33px]" : "left-[33px]"
+                  } w-0 h-0 border-l-[10px] border-l-transparent border-r-[10px] border-r-transparent border-t-[12px] border-t-black/90`}
               ></div>
             </div>
           </div>
@@ -168,28 +165,25 @@ export default function AiCohostWidget({
       <div className="relative group cursor-pointer pointer-events-auto">
         {/* Outer Neon Glow Aura when Speaking */}
         <div
-          className={`absolute -inset-2 rounded-2xl transition-all duration-300 ${
-            isSpeaking
-              ? "bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400 opacity-95 blur-md animate-pulse scale-110"
-              : "bg-pink-500/20 opacity-40 blur-sm scale-95"
-          }`}
+          className={`absolute -inset-2 rounded-2xl transition-all duration-300 ${isSpeaking
+            ? "bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400 opacity-95 blur-md animate-pulse scale-110"
+            : "bg-pink-500/20 opacity-40 blur-sm scale-95"
+            }`}
         ></div>
 
         {/* Character Frame: Pixel Art Avatar with Audio Equalizer Bounce */}
         <div
-          className={`relative w-20 h-20 md:w-24 md:h-24 rounded-2xl border-3 overflow-hidden bg-gray-900 shadow-2xl transition-all duration-300 flex items-center justify-center ${
-            isSpeaking
-              ? "border-pink-400 scale-105 rotate-1 animate-[bounce_1.2s_infinite]"
-              : "border-purple-400/80 hover:border-pink-400 scale-100"
-          }`}
+          className={`relative w-20 h-20 md:w-24 md:h-24 rounded-2xl border-3 overflow-hidden bg-gray-900 shadow-2xl transition-all duration-300 flex items-center justify-center ${isSpeaking
+            ? "border-pink-400 scale-105 rotate-1 animate-[bounce_1.2s_infinite]"
+            : "border-purple-400/80 hover:border-pink-400 scale-100"
+            }`}
         >
           {/* Mimin's Uploaded Pixel Art Image */}
           <img
             src="/images/budak-mimin.jpg"
             alt="Budak Mimin"
-            className={`w-full h-full object-cover transition-transform duration-200 ${
-              isSpeaking ? "scale-110" : "scale-100"
-            }`}
+            className={`w-full h-full object-cover transition-transform duration-200 ${isSpeaking ? "scale-110" : "scale-100"
+              }`}
             style={{ imageRendering: "pixelated" }}
           />
 

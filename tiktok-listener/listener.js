@@ -336,7 +336,7 @@ tiktokLiveConnection.on("chat", async (data) => {
         );
 
         if (response.data?.success) {
-          console.log(`✨ [AI CO-HOST JAWAB] Veyra AI: "${response.data.cohost?.reply}"`);
+          console.log(`✨ [AI CO-HOST JAWAB] Budak Mimin: "${response.data.cohost?.reply}"`);
         }
       } catch (error) {
         console.error("❌ [AI CO-HOST ERROR] Gagal memanggil endpoint AI Co-Host:", error.response?.data || error.message);

@@ -112,7 +112,7 @@ export default function AiCohostWidget({
                 <div className="flex items-center gap-2">
                   <span className="w-2 h-2 rounded-full bg-pink-400 animate-ping"></span>
                   <span className="text-xs font-black tracking-wider text-pink-300 uppercase">
-                    Veyra AI • Co-Host
+                    Budak Mimin • GTA 6
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -164,138 +164,53 @@ export default function AiCohostWidget({
         )}
       </div>
 
-      {/* 2. AUDIO-REACTIVE ANIME / GTA 6 CO-HOST AVATAR */}
+      {/* 2. AUDIO-REACTIVE PIXEL ART AVATAR: BUDAK MIMIN */}
       <div className="relative group cursor-pointer pointer-events-auto">
         {/* Outer Neon Glow Aura when Speaking */}
         <div
-          className={`absolute -inset-2 rounded-full transition-all duration-300 ${
+          className={`absolute -inset-2 rounded-2xl transition-all duration-300 ${
             isSpeaking
-              ? "bg-gradient-to-r from-pink-500 to-cyan-400 opacity-90 blur-lg animate-pulse scale-105"
-              : "bg-pink-500/20 opacity-40 blur-md scale-95"
+              ? "bg-gradient-to-r from-pink-500 via-purple-500 to-cyan-400 opacity-95 blur-md animate-pulse scale-110"
+              : "bg-pink-500/20 opacity-40 blur-sm scale-95"
           }`}
         ></div>
 
-        {/* Character Circle Frame */}
+        {/* Character Frame: Pixel Art Avatar with Audio Equalizer Bounce */}
         <div
-          className={`relative w-20 h-20 md:w-24 md:h-24 rounded-full border-3 overflow-hidden bg-gradient-to-br from-gray-900 via-purple-950 to-pink-950 shadow-2xl transition-all duration-300 flex items-center justify-center ${
+          className={`relative w-20 h-20 md:w-24 md:h-24 rounded-2xl border-3 overflow-hidden bg-gray-900 shadow-2xl transition-all duration-300 flex items-center justify-center ${
             isSpeaking
-              ? "border-pink-400 scale-105 rotate-1"
+              ? "border-pink-400 scale-105 rotate-1 animate-[bounce_1.2s_infinite]"
               : "border-purple-400/80 hover:border-pink-400 scale-100"
           }`}
         >
-          {/* Animated 2D Vector Avatar: Cyberpunk GTA Girl with Headphones & Visor */}
-          <svg
-            viewBox="0 0 100 100"
-            className={`w-full h-full transition-transform duration-200 ${
-              isSpeaking ? "scale-105 animate-[bounce_1.2s_infinite]" : "scale-100"
+          {/* Mimin's Uploaded Pixel Art Image */}
+          <img
+            src="/images/budak-mimin.jpg"
+            alt="Budak Mimin"
+            className={`w-full h-full object-cover transition-transform duration-200 ${
+              isSpeaking ? "scale-110" : "scale-100"
             }`}
-          >
-            {/* Background Cyber Gradient */}
-            <defs>
-              <linearGradient id="cyberHair" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stopColor="#ec4899" />
-                <stop offset="50%" stopColor="#8b5cf6" />
-                <stop offset="100%" stopColor="#06b6d4" />
-              </linearGradient>
-              <linearGradient id="cyberSkin" x1="0%" y1="0%" x2="0%" y2="100%">
-                <stop offset="0%" stopColor="#fde047" />
-                <stop offset="100%" stopColor="#f59e0b" />
-              </linearGradient>
-            </defs>
+            style={{ imageRendering: "pixelated" }}
+          />
 
-            {/* Back Hair */}
-            <path
-              d="M 18 55 C 10 30, 25 10, 50 10 C 75 10, 90 30, 82 55 C 88 75, 78 90, 70 95 C 65 75, 75 60, 68 50 C 60 55, 40 55, 32 50 C 25 60, 35 75, 30 95 C 22 90, 12 75, 18 55 Z"
-              fill="url(#cyberHair)"
-            />
-
-            {/* Face / Head */}
-            <ellipse cx="50" cy="52" rx="22" ry="24" fill="#fed7aa" />
-
-            {/* Front Bangs (Hair) */}
-            <path
-              d="M 28 36 C 35 25, 65 25, 72 36 C 65 42, 60 38, 55 45 C 50 38, 42 42, 38 45 C 34 38, 30 42, 28 36 Z"
-              fill="url(#cyberHair)"
-            />
-
-            {/* Anime Eyes */}
-            {isSpeaking ? (
-              // Excited / Talking Happy Eyes (Curves)
-              <>
-                <path
-                  d="M 37 50 Q 42 45 47 50"
-                  stroke="#1e1b4b"
-                  strokeWidth="3.5"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-                <path
-                  d="M 53 50 Q 58 45 63 50"
-                  stroke="#1e1b4b"
-                  strokeWidth="3.5"
-                  fill="none"
-                  strokeLinecap="round"
-                />
-                {/* Blushing cheeks */}
-                <ellipse cx="36" cy="56" rx="4" ry="2" fill="#f43f5e" opacity="0.6" />
-                <ellipse cx="64" cy="56" rx="4" ry="2" fill="#f43f5e" opacity="0.6" />
-              </>
-            ) : (
-              // Idle Eyes (Sparkling Big Anime Eyes)
-              <>
-                <ellipse cx="41" cy="50" rx="4" ry="5.5" fill="#1e1b4b" />
-                <circle cx="42.5" cy="48.5" r="1.8" fill="#ffffff" />
-                <ellipse cx="59" cy="50" rx="4" ry="5.5" fill="#1e1b4b" />
-                <circle cx="60.5" cy="48.5" r="1.8" fill="#ffffff" />
-                {/* Subtle Blush */}
-                <ellipse cx="36" cy="56" rx="3.5" ry="1.5" fill="#f43f5e" opacity="0.4" />
-                <ellipse cx="64" cy="56" rx="3.5" ry="1.5" fill="#f43f5e" opacity="0.4" />
-              </>
-            )}
-
-            {/* Mouth: Audio-reactive mouth flap */}
-            {isSpeaking ? (
-              // Open Talking Mouth (Animates with speech)
-              <path
-                d="M 45 62 Q 50 71 55 62 Z"
-                fill="#e11d48"
-                className="animate-pulse"
-              />
-            ) : (
-              // Idle Cute Smile
-              <path
-                d="M 47 62 Q 50 65 53 62"
-                stroke="#881337"
-                strokeWidth="2"
-                fill="none"
-                strokeLinecap="round"
-              />
-            )}
-
-            {/* Streamer Gaming Headset (Neon Pink & Cyan) */}
-            <path
-              d="M 23 48 C 23 28, 77 28, 77 48"
-              stroke="#06b6d4"
-              strokeWidth="5"
-              fill="none"
-              strokeLinecap="round"
-            />
-            {/* Left Ear Cushion */}
-            <rect x="20" y="44" width="7" height="15" rx="3" fill="#ec4899" stroke="#ffffff" strokeWidth="1" />
-            {/* Right Ear Cushion */}
-            <rect x="73" y="44" width="7" height="15" rx="3" fill="#ec4899" stroke="#ffffff" strokeWidth="1" />
-            {/* Headset Mic Boom */}
-            <path d="M 24 56 Q 28 66 38 65" stroke="#06b6d4" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-            <circle cx="39" cy="65" r="2.5" fill="#ec4899" />
-          </svg>
+          {/* Speaking Equalizer Overlay on Avatar Bottom */}
+          {isSpeaking && (
+            <div className="absolute inset-x-0 bottom-0 py-1 bg-black/70 backdrop-blur-xs flex items-center justify-center gap-1">
+              <span className="w-1 h-3 bg-pink-400 rounded-full animate-bounce [animation-delay:0ms]"></span>
+              <span className="w-1 h-4 bg-yellow-400 rounded-full animate-bounce [animation-delay:150ms]"></span>
+              <span className="w-1 h-2.5 bg-cyan-400 rounded-full animate-bounce [animation-delay:300ms]"></span>
+              <span className="w-1 h-3.5 bg-pink-400 rounded-full animate-bounce [animation-delay:200ms]"></span>
+            </div>
+          )}
 
           {/* Online Co-Host Badge Dot */}
-          <span className="absolute bottom-1 right-1 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-md animate-pulse"></span>
+          <span className="absolute top-1.5 right-1.5 w-3.5 h-3.5 bg-emerald-400 border-2 border-black rounded-full shadow-md animate-pulse"></span>
         </div>
 
         {/* Name Tag Pill */}
-        <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-pink-500/60 shadow-lg text-[10px] font-black text-pink-300 tracking-wider uppercase shrink-0 whitespace-nowrap">
-          Veyra AI
+        <div className="absolute -bottom-2.5 left-1/2 -translate-x-1/2 px-2.5 py-0.5 rounded-full bg-black/90 border border-pink-500/80 shadow-lg text-[10px] font-black text-yellow-300 tracking-wider uppercase shrink-0 whitespace-nowrap flex items-center gap-1">
+          <span>🎮</span>
+          <span>Budak Mimin</span>
         </div>
       </div>
     </div>

@@ -432,7 +432,7 @@ export default function TestOverlayPage() {
 
       const data = await res.json();
       if (res.ok && data.success) {
-        toast.success(`🎮 Veyra AI: "${data.cohost?.reply}"`);
+        toast.success(`🎮 Budak Mimin: "${data.cohost?.reply}"`);
       } else {
         toast.error(data.error || "Gagal menghubungi AI Co-Host.");
       }
@@ -3504,10 +3504,10 @@ export default function TestOverlayPage() {
                         <span className="material-symbols-outlined text-pink-600 text-[22px]">
                           smart_toy
                         </span>
-                        Tanya Veyra AI (GTA 6 Co-Host)
+                        Tanya Budak Mimin (GTA 6 Co-Host)
                       </h2>
                       <p className="text-xs text-gray-500">
-                        Didukung Google Gemini Flash dengan suntikan database GTA 6 lengkap (Leonida, Lucia, Jason, senjata, mobil, collectibles).
+                        Didukung Google Gemini Flash dengan suntikan database GTA 6 lengkap &amp; setia mendampingi Mimin streaming!
                       </p>
                     </div>
                   </div>
@@ -3596,7 +3596,7 @@ export default function TestOverlayPage() {
                         !tanyaai di mana lokasi Skunk Ape?
                       </code>
                       <br />
-                      TikTok Listener akan menangkap komentar tersebut, Gemini Flash memproses jawabannya, dan avatar Veyra AI langsung muncul dengan balon awan di stream!
+                      TikTok Listener akan menangkap komentar tersebut, Gemini Flash memproses jawabannya, dan avatar Budak Mimin langsung muncul dengan balon awan di stream!
                     </div>
 
                     <div className="p-3 rounded-xl bg-gray-50 border border-gray-200">

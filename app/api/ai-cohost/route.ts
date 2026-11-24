@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
       mood: cohostReply.mood,
       voice: voice || "schoolgirl",
       source,
-      sender: sender || "Veyra AI",
+      sender: sender || "Budak Mimin",
       timestamp: new Date().toISOString(),
     };
 

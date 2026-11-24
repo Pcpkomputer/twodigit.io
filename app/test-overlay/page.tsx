@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { toast } from "sonner";
 import Pusher from "pusher-js";
 import { SFX_CATALOG } from "@/lib/sfx";
@@ -135,6 +135,19 @@ export default function TestOverlayPage() {
   const [chatPosition, setChatPosition] = useState<string>("bottom-left");
   const [chatVoice, setChatVoice] = useState<string>("schoolgirl");
   const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
+
+  // Speech-to-Text (STT) Hands-Free Voice Listener with 'jawab' wake-word
+  const [isVoiceListenerActive, setIsVoiceListenerActive] = useState<boolean>(false);
+  const [wakeWord, setWakeWord] = useState<string>("jawab");
+  const [isSttSupported, setIsSttSupported] = useState<boolean>(true);
+  const [sttStatus, setSttStatus] = useState<"idle" | "listening" | "processing">("idle");
+  const [lastHeardTranscript, setLastHeardTranscript] = useState<string>("");
+  const recognitionRef = useRef<any>(null);
+  const shouldKeepListeningRef = useRef<boolean>(false);
+  const wakeWordRef = useRef<string>("jawab");
+  const chatSenderRef = useRef<string>("Streamer");
+  const chatBadgeRef = useRef<string>("🎙️ Host");
+  const chatVoiceRef = useRef<string>("schoolgirl");
 
   // Poll state
   const [poll, setPoll] = useState<PollState | null>(null);
@@ -378,6 +391,156 @@ export default function TestOverlayPage() {
       toast.error("Terjadi kesalahan koneksi saat mengirim chat.");
     } finally {
       setIsSendingChat(false);
+    }
+  };
+
+  // Keep ref sync with state for background speech recognition
+  useEffect(() => {
+    wakeWordRef.current = wakeWord;
+  }, [wakeWord]);
+
+  useEffect(() => {
+    chatSenderRef.current = chatSender;
+  }, [chatSender]);
+
+  useEffect(() => {
+    chatBadgeRef.current = chatBadge;
+  }, [chatBadge]);
+
+  useEffect(() => {
+    chatVoiceRef.current = chatVoice;
+  }, [chatVoice]);
+
+  // Speech-to-Text Recognition Setup (webkitSpeechRecognition)
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setIsSttSupported(false);
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = "id-ID";
+
+    recognition.onstart = () => {
+      setSttStatus("listening");
+    };
+
+    recognition.onresult = (event: any) => {
+      const resultsLen = event.results.length;
+      if (resultsLen === 0) return;
+
+      const lastResult = event.results[resultsLen - 1];
+      if (!lastResult.isFinal) return;
+
+      const spokenText = lastResult[0].transcript.trim();
+      if (!spokenText) return;
+
+      setLastHeardTranscript(spokenText);
+
+      // Check for wake-word (Case-insensitive)
+      const currentKeyword = (wakeWordRef.current || "jawab").trim().toLowerCase();
+      const lowerSpoken = spokenText.toLowerCase();
+
+      // Check if text starts with or contains wake-word
+      let matched = false;
+      let cleanMessage = "";
+
+      // Regex matching wake-word at word boundary
+      // e.g. "jawab jangan lupa follow ya" -> "jangan lupa follow ya"
+      // or "halo bot jawab ..." -> "..."
+      const wakeWordRegex = new RegExp(`(^|\\b)${currentKeyword}\\b[:,]?\\s*`, "i");
+
+      if (wakeWordRegex.test(spokenText)) {
+        matched = true;
+        cleanMessage = spokenText.replace(wakeWordRegex, "").trim();
+      }
+
+      if (matched && cleanMessage.length > 0) {
+        setSttStatus("processing");
+        toast.info(`🎙️ Wake-word terdeteksi: "${cleanMessage}"`);
+        sendInteractiveChat(cleanMessage, chatSenderRef.current, chatBadgeRef.current);
+        setTimeout(() => {
+          if (shouldKeepListeningRef.current) {
+            setSttStatus("listening");
+          }
+        }, 1500);
+      }
+    };
+
+    recognition.onerror = (e: any) => {
+      console.warn("STT Speech recognition error:", e.error);
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
+        toast.error("Izin akses mic ditolak browser. Izinkan mikrofon di pengaturan browser.");
+        setIsVoiceListenerActive(false);
+        shouldKeepListeningRef.current = false;
+        setSttStatus("idle");
+      }
+    };
+
+    recognition.onend = () => {
+      // Auto-restart if user still wants it active (browser auto-ends continuous stream after silence)
+      if (shouldKeepListeningRef.current) {
+        try {
+          recognition.start();
+        } catch {
+          // Restart after short delay
+          setTimeout(() => {
+            if (shouldKeepListeningRef.current) {
+              try {
+                recognition.start();
+              } catch {}
+            }
+          }, 300);
+        }
+      } else {
+        setSttStatus("idle");
+      }
+    };
+
+    recognitionRef.current = recognition;
+
+    return () => {
+      shouldKeepListeningRef.current = false;
+      try {
+        recognition.stop();
+      } catch {}
+      recognitionRef.current = null;
+    };
+  }, []);
+
+  const toggleVoiceListener = () => {
+    if (!isSttSupported) {
+      toast.error("Browser Anda tidak mendukung Web Speech Recognition. Gunakan Google Chrome atau Edge.");
+      return;
+    }
+
+    const recognition = recognitionRef.current;
+    if (!recognition) return;
+
+    if (isVoiceListenerActive) {
+      shouldKeepListeningRef.current = false;
+      setIsVoiceListenerActive(false);
+      setSttStatus("idle");
+      try {
+        recognition.stop();
+      } catch {}
+      toast.info("Mic Listener dinonaktifkan.");
+    } else {
+      shouldKeepListeningRef.current = true;
+      setIsVoiceListenerActive(true);
+      try {
+        recognition.start();
+        toast.success(`🎙️ Mic Listener Aktif! Awali kalimat dengan kata "${wakeWord}".`);
+      } catch (err) {
+        console.warn("Failed to start speech recognition:", err);
+      }
     }
   };
 
@@ -1931,7 +2094,116 @@ export default function TestOverlayPage() {
             {/* Chat Input & Live Controls */}
             <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
               {/* Left Column: Chat Composer */}
-              <div className="lg:col-span-7">
+              <div className="lg:col-span-7 flex flex-col gap-6">
+                {/* 🎙️ HANDS-FREE VOICE ASSISTANT (WAKE-WORD STT) */}
+                <div className={`rounded-2xl border p-5 transition-all shadow-sm ${
+                  isVoiceListenerActive 
+                    ? "bg-gradient-to-br from-emerald-50 via-teal-50 to-emerald-100/50 border-emerald-400 shadow-emerald-100" 
+                    : "bg-white border-gray-200"
+                }`}>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0 transition-all ${
+                        isVoiceListenerActive 
+                          ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30 animate-pulse" 
+                          : "bg-gray-100 text-gray-500"
+                      }`}>
+                        {isVoiceListenerActive ? "🎙️" : "🎙️"}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-black text-sm text-gray-900">
+                            Voice Hands-Free (Wake-Word)
+                          </h3>
+                          <span className={`px-2 py-0.5 rounded-full text-[10px] font-black tracking-wide uppercase ${
+                            isVoiceListenerActive 
+                              ? "bg-emerald-600 text-white animate-pulse" 
+                              : "bg-gray-200 text-gray-600"
+                          }`}>
+                            {isVoiceListenerActive ? (sttStatus === "processing" ? "Memproses..." : "Listening ON") : "OFF"}
+                          </span>
+                        </div>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          Tangan bebas main game. Ucapkan <span className="font-black text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded border border-emerald-300">"{wakeWord}"</span> di mic, kalimat sesudahnya otomatis dikirim ke live!
+                        </p>
+                      </div>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={toggleVoiceListener}
+                      className={`px-4 py-2.5 rounded-xl font-bold text-xs transition-all shadow-sm active:scale-95 shrink-0 flex items-center justify-center gap-2 ${
+                        isVoiceListenerActive
+                          ? "bg-red-500 hover:bg-red-600 text-white shadow-red-500/20"
+                          : "bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-600/20"
+                      }`}
+                    >
+                      {isVoiceListenerActive ? (
+                        <>
+                          <span className="w-2 h-2 rounded-full bg-white animate-ping"></span>
+                          <span>Matikan Mic</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Aktifkan Mic Hands-Free</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Wake-Word Config & Live Feedback */}
+                  <div className="mt-4 pt-4 border-t border-gray-200/60 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                        Kata Kunci Pemicu (Wake-Up Word):
+                      </label>
+                      <div className="flex gap-2 items-center">
+                        <input
+                          type="text"
+                          value={wakeWord}
+                          onChange={(e) => setWakeWord(e.target.value.toLowerCase())}
+                          placeholder="jawab"
+                          className="w-full h-8 px-2.5 rounded-lg border border-gray-300 bg-white font-bold text-xs text-emerald-800 focus:border-emerald-500 outline-none"
+                        />
+                        <div className="flex gap-1">
+                          {["jawab", "bot", "host"].map((kw) => (
+                            <button
+                              key={kw}
+                              type="button"
+                              onClick={() => setWakeWord(kw)}
+                              className={`px-2 py-1 rounded text-[10px] font-bold border transition ${
+                                wakeWord === kw 
+                                  ? "bg-emerald-600 text-white border-emerald-600" 
+                                  : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"
+                              }`}
+                            >
+                              {kw}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] font-bold text-gray-700 mb-1">
+                        Suara Terakhir Terdengar:
+                      </label>
+                      <div className="h-8 px-2.5 rounded-lg bg-white/80 border border-gray-200 flex items-center text-xs text-gray-600 italic truncate">
+                        {lastHeardTranscript ? (
+                          <span className="text-gray-800 not-italic font-medium truncate">
+                            &ldquo;{lastHeardTranscript}&rdquo;
+                          </span>
+                        ) : (
+                          <span className="text-gray-400">
+                            {isVoiceListenerActive ? "Menunggu suara di mic..." : "Mic belum diaktifkan"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Manual Chat Composer */}
                 <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-6">
                   <div className="flex items-center justify-between mb-4">
                     <div>
@@ -1939,7 +2211,7 @@ export default function TestOverlayPage() {
                         <span className="material-symbols-outlined text-primary text-[22px]">
                           chat_bubble
                         </span>
-                        Tulis Pesan untuk Overlay & TTS
+                        Tulis Pesan Manual (Ketik)
                       </h2>
                       <p className="text-xs text-gray-500">
                         Ketik teks apa pun, pesan akan muncul di layar streaming dan disuarakan oleh TTS langsung tanpa prefix.
